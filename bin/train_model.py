@@ -151,7 +151,7 @@ def evaluate_guidance(
 def main(config, log_dir):
     # Load parameters
     dataset_name = config["dataset"]
-    freq = config["freq"]
+    freq = config["freq"].lower()  # Convert to lowercase for consistency
     context_length = config["context_length"]
     prediction_length = config["prediction_length"]
     total_length = context_length + prediction_length
@@ -161,8 +161,25 @@ def main(config, log_dir):
 
     # Setup dataset and data loading
     dataset = get_gts_dataset(dataset_name)
-    assert dataset.metadata.freq == freq
-    assert dataset.metadata.prediction_length == prediction_length
+    
+    # Check and normalize frequency
+    dataset_freq = dataset.metadata.freq.lower()
+    if dataset_freq == 'h' and freq == 'h' or dataset_freq == 'hourly' and freq == 'h':
+        # Normalize frequency to 'h'
+        config["freq"] = 'h'
+        freq = 'h'
+    else:
+        raise ValueError(
+            f"Frequency mismatch: Config specified '{freq}' but dataset has '{dataset.metadata.freq}'. "
+            f"Please ensure the frequencies match. Supported frequencies are: 'h', 'D', 'W', 'M', 'B'"
+        )
+
+    # Verify prediction length
+    if dataset.metadata.prediction_length != prediction_length:
+        logger.warning(
+            f"Prediction length mismatch: Config specified {prediction_length} but dataset has "
+            f"{dataset.metadata.prediction_length}. Using config value."
+        )
 
     if config["setup"] == "forecasting":
         training_data = dataset.train
