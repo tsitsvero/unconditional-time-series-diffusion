@@ -21,7 +21,7 @@ from gluonts.itertools import Cached
 from gluonts.model.forecast_generator import (
     ForecastGenerator,
     SampleForecastGenerator,
-    predict_to_numpy,
+    # predict_to_numpy,
 )
 
 from ._scaler import MeanScaler, NOPScaler
@@ -69,9 +69,9 @@ class LinearModel:
         return np.tile(out[:, None], (1, self.num_parallel_samples, 1))
 
 
-@predict_to_numpy.register(LinearModel)
-def _(prediction_net, args) -> np.ndarray:
-    return prediction_net(*args)
+# @predict_to_numpy.register(LinearModel)
+# def _(prediction_net, args) -> np.ndarray:
+#     return prediction_net(*args)
 
 
 class LinearPredictor(Predictor):
