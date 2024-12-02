@@ -11,7 +11,7 @@ import pytorch_lightning as pl
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from gluonts.time_feature import time_features_from_frequency_str
 from gluonts.torch.modules.feature import FeatureEmbedder
-from gluonts.torch.modules.scaler import MeanScaler, NOPScaler
+from gluonts.torch.scaler import MeanScaler, NOPScaler
 
 from uncond_ts_diff.utils import extract
 
