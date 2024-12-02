@@ -254,9 +254,16 @@ def main(config, log_dir):
     callbacks.append(checkpoint_callback)
     callbacks.append(RichProgressBar())
 
+    # Get device index for trainer
+    if isinstance(config["device"], torch.device):
+        device_idx = 0 if config["device"].type == "cuda" else None
+    else:
+        # Handle string device specification
+        device_idx = int(config["device"].split(":")[-1]) if ":" in config["device"] else 0
+
     trainer = pl.Trainer(
-        accelerator="gpu" if torch.cuda.is_available() else None,
-        devices=[int(config["device"].split(":")[-1])],
+        accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        devices=[device_idx] if device_idx is not None else None,
         max_epochs=config["max_epochs"],
         enable_progress_bar=True,
         num_sanity_val_steps=0,
