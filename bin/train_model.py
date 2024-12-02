@@ -34,7 +34,17 @@ guidance_map = {"ddpm": DDPMGuidance, "ddim": DDIMGuidance}
 
 
 def create_model(config):
-    model_cls = getattr(diffusion_configs, config["diffusion_config"])
+    # Get the model configuration class
+    try:
+        model_config = getattr(diffusion_configs, config["diffusion_config"])
+        if isinstance(model_config, dict):
+            model_cls = TSDiff  # Use TSDiff as the base model class
+        else:
+            model_cls = model_config
+    except AttributeError:
+        raise ValueError(f"Could not find diffusion config '{config['diffusion_config']}' in configs")
+
+    # Setup model kwargs
     model_kwargs = {
         "freq": config["freq"],
         "use_features": config["use_features"],
@@ -46,19 +56,23 @@ def create_model(config):
         "init_skip": config["init_skip"],
     }
 
-    # Replace the direct device assignment with a safer version
+    # If model_config is a dict, add it to model_kwargs
+    if isinstance(model_config, dict):
+        model_kwargs.update(model_config)
+
+    # Safely determine device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config["device"] = device
     
-    model = model_cls(**model_kwargs)
-    
-    # Safely move model to device
     try:
+        model = model_cls(**model_kwargs)
         model = model.to(device)
     except RuntimeError as e:
         print(f"Warning: Could not move model to {device}. Using CPU instead. Error: {e}")
         config["device"] = torch.device("cpu")
-        model = model.to("cpu")
+        model = model_cls(**model_kwargs).to("cpu")
+    except Exception as e:
+        raise RuntimeError(f"Failed to create model: {str(e)}")
     
     return model
 
