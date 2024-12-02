@@ -34,18 +34,32 @@ guidance_map = {"ddpm": DDPMGuidance, "ddim": DDIMGuidance}
 
 
 def create_model(config):
-    model = TSDiff(
-        **getattr(diffusion_configs, config["diffusion_config"]),
-        freq=config["freq"],
-        use_features=config["use_features"],
-        use_lags=config["use_lags"],
-        normalization=config["normalization"],
-        context_length=config["context_length"],
-        prediction_length=config["prediction_length"],
-        lr=config["lr"],
-        init_skip=config["init_skip"],
-    )
-    model.to(config["device"])
+    model_cls = getattr(diffusion_configs, config["diffusion_config"])
+    model_kwargs = {
+        "freq": config["freq"],
+        "use_features": config["use_features"],
+        "use_lags": config["use_lags"],
+        "normalization": config["normalization"],
+        "context_length": config["context_length"],
+        "prediction_length": config["prediction_length"],
+        "lr": config["lr"],
+        "init_skip": config["init_skip"],
+    }
+
+    # Replace the direct device assignment with a safer version
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    config["device"] = device
+    
+    model = model_cls(**model_kwargs)
+    
+    # Safely move model to device
+    try:
+        model = model.to(device)
+    except RuntimeError as e:
+        print(f"Warning: Could not move model to {device}. Using CPU instead. Error: {e}")
+        config["device"] = torch.device("cpu")
+        model = model.to("cpu")
+    
     return model
 
 

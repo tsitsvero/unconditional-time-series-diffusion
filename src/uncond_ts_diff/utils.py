@@ -596,3 +596,22 @@ class ConcatDataset:
 
     def __iter__(self):
         yield from self._concat(self.test_pairs)
+
+
+def get_device(device_str: str = "auto") -> torch.device:
+    """
+    Safely determine the device to use for training.
+    
+    Args:
+        device_str: String specifying the device ("auto", "cuda", "cpu")
+        
+    Returns:
+        torch.device: The resolved device
+    """
+    if device_str == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    elif device_str == "cuda" and not torch.cuda.is_available():
+        print("Warning: CUDA requested but not available. Using CPU instead.")
+        return torch.device("cpu")
+    else:
+        return torch.device(device_str)
