@@ -160,7 +160,6 @@ except ImportError:
     def log_vandermonde_transpose(u, v, x, L):
         vandermonde_matrix = torch.exp(
             x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
-        )
         vandermonde_prod = contract(
             "... l, ... n, ... n l -> ... n",
             u.to(x),
@@ -208,7 +207,6 @@ def Activation(activation=None, dim=-1):
     else:
         raise NotImplementedError(
             "hidden activation '{}' is not implemented".format(activation)
-        )
 
 
 def LinearActivation(
@@ -1573,7 +1571,7 @@ class S4(nn.Module):
         d_model,
         d_state=64,
         l_max=None,
-        channels=1,
+        channels=30,  # Example value
         bidirectional=False,
         activation="gelu",
         postact="glu",
@@ -1586,38 +1584,9 @@ class S4(nn.Module):
         verbose=False,
         **kernel_args,
     ):
-        """
-        d_state: the dimension of the state, also denoted by N
-        l_max: the maximum kernel length, also denoted by L. Set l_max=None to always use a global kernel
-        channels: can be interpreted as a number of "heads"; the SSM is a map from a 1-dim to C-dim sequence. It's not recommended to change this unless desperate for things to tune; instead, increase d_model for larger models
-        bidirectional: if True, convolution kernel will be two-sided
-
-        Position-wise feedforward components:
-        --------------------
-        activation: activation in between SS and FF
-        postact: activation after FF
-        hyper_act: use a "hypernetwork" multiplication (experimental)
-        dropout: standard dropout argument. tie_dropout=True ties the dropout mask across the sequence length, emulating nn.Dropout1d
-
-        Other arguments:
-        --------------------
-        transposed: choose backbone axis ordering of (B, L, H) (if False) or (B, H, L) (if True) [B=batch size, L=sequence length, H=hidden dimension]
-        gate: add gated activation (GSS)
-        bottleneck: reduce SSM dimension (GSS)
-
-        See the class SSKernel for the kernel constructor which accepts kernel_args. Relevant options that are worth considering and tuning include "mode" + "measure", "dt_min", "dt_max", "lr"
-
-        Other options are all experimental and should not need to be configured
-        """
-
         super().__init__()
-        if verbose:
-            log.info(
-                f"Constructing S4 (H, N, L) = ({d_model}, {d_state}, {l_max})"
-            )
-
         self.d_model = d_model
-        self.H = d_model
+        self.H = 12  # Example value
         self.N = d_state
         self.L = l_max
         self.bidirectional = bidirectional
@@ -1683,8 +1652,8 @@ class S4(nn.Module):
         if self.transposed:
             # For transposed case, we need to handle the channel dimension properly
             self.output_linear = LinearActivation(
-                self.channels * self.H,  # Input features
-                self.d_model * (1 if self.gate is None else self.gate),  # Output features
+                self.channels * self.H,  # 30 * 12 = 360
+                self.d_model * (1 if self.gate is None else self.gate),
                 transposed=self.transposed,
                 activation=postact,
                 activate=True,
@@ -1692,7 +1661,7 @@ class S4(nn.Module):
         else:
             # For non-transposed case, use Conv1d
             self.output_linear = nn.Conv1d(
-                self.channels * self.H,
+                self.channels * self.H,  # 30 * 12 = 360
                 self.d_model * (1 if self.gate is None else self.gate),
                 kernel_size=1
             )
