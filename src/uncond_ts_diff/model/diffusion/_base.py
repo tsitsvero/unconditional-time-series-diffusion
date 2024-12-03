@@ -311,11 +311,10 @@ class TSDiffBase(pl.LightningModule):
             "elbo_loss": elbo_loss,
         }
 
-    def training_epoch_end(self, outputs):
-        epoch_loss = sum(x["loss"] for x in outputs) / len(outputs)
-        elbo_loss = sum(x["elbo_loss"] for x in outputs) / len(outputs)
-        self.log("train_loss", epoch_loss)
-        self.log("train_elbo_loss", elbo_loss)
+    def on_train_epoch_end(self):
+        avg_loss = torch.stack([x["loss"] for x in self.training_step_outputs]).mean()
+        self.log("train_loss", avg_loss, prog_bar=True)
+        self.training_step_outputs = []
 
     def validation_step(self, data, idx):
         device = next(self.backbone.parameters()).device
