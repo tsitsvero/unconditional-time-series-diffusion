@@ -824,13 +824,11 @@ class SSKernelNPLR(OptimModule):
         (C, H, L) convolution kernel (generally C=1)
         (B, H, L) output from initial state
         """
-
         # Initialize C~ if necessary (done in forward pass so it's on the correct device)
         if self.L.item() == 0 and self.l_max is not None and self.l_max > 0:
             self._setup_C(self.l_max)
 
         # Handle sampling rate logic
-        # The idea is that this kernel's length (in continuous units) is self.L, while we are asked to provide a kernel of length L at (relative) frequency rate
         if L is None:
             L = round(self.L.item() / rate)
 
@@ -855,9 +853,7 @@ class SSKernelNPLR(OptimModule):
             C = C * mask
 
         # Get FFT nodes of right length
-        omega, z = self._omega(
-            discrete_L, dtype=w.dtype, device=w.device, cache=(rate == 1.0)
-        )
+        omega, z = self._omega(discrete_L, dtype=w.dtype, device=w.device, cache=(rate == 1.0))
 
         # Broadcast parameters to same hidden features H
         B = repeat(B, "1 t n -> 1 (v t) n", v=self.repeat)
@@ -897,7 +893,10 @@ class SSKernelNPLR(OptimModule):
             r = cauchy_conj(v, z, w)
         else:
             r = cauchy_naive(v, z, w)
-        r = r * dt[None, None, :, None]  # (B+1+R, C+R, H, L)
+        
+        # Ensure dt is broadcast correctly to match r's dimensions
+        dt_expanded = dt.view(1, 1, -1, 1)  # Add dimensions to match r's shape
+        r = r * dt_expanded  # (B+1+R, C+R, H, L)
 
         # Low-rank Woodbury correction
         if self.rank == 1:
