@@ -100,9 +100,8 @@ try:  # Try pykeops
         x: (..., N)
         returns: (..., L) \sum v x^l
         """
-        # Fix the parentheses
         vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L).to(x)
+            x.unsqueeze(-1) * torch.arange(L, device=x.device)
         )  # (... N L)
         vandermonde_prod = contract(
             "... n, ... n l -> ... l", v, vandermonde_matrix
@@ -151,7 +150,7 @@ except ImportError:
         returns: (..., L) \sum v x^l
         """
         vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L).to(x)  # (... N L)
+            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
         vandermonde_prod = contract(
             "... n, ... n l -> ... l", v, vandermonde_matrix
         )  # (... L)
