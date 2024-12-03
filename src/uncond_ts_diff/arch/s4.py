@@ -66,59 +66,83 @@ try:  # Try pykeops
         return tensors
 
     def cauchy_conj(v, z, w):
-        """Cauchy kernel with conjugated kernel points"""
-        try:
-            if has_cauchy_extension:
-                # Use CUDA extension if available
-                r = 2 * cauchy_mult(v, z, w, backend="GPU")
-            else:
-                # Fall back to pykeops if available
-                if has_pykeops:
-                    expr = "Sum(v/(z-w))"
-                    cauchy_mult = Genred(
-                        expr,
-                        ["v = Vj(2)", "z = Vi(2)", "w = Vj(2)"],
-                        reduction_op="Sum",
-                        axis=1,
-                    )
-                    v, z, w = _broadcast_dims(v, z, w)
-                    r = 2 * cauchy_mult(v, z, w, backend="CPU")
-                else:
-                    # Fall back to naive implementation
-                    cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj())
-                    r = 2 * torch.sum(cauchy_matrix, dim=1)
-        except Exception as e:
-            log.warning(f"Cauchy kernel computation failed, using naive implementation. Error: {str(e)}")
-            # Naive implementation (v, z, w are B x N)
-            cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj())
-            r = 2 * torch.sum(cauchy_matrix, dim=1)
-        return r
+        """Pykeops version"""
+        expr_num = "z * ComplexReal(v) - Real2Complex(Sum(v * w))"
+        expr_denom = "ComplexMult(z-w, z-Conj(w))"
+
+        cauchy_mult = Genred(
+            f"ComplexDivide({expr_num}, {expr_denom})",
+            [
+                "v = Vj(2)",
+                "z = Vi(2)",
+                "w = Vj(2)",
+            ],
+            reduction_op="Sum",
+            axis=1,
+        )
+
+        v, z, w = _broadcast_dims(v, z, w)
+        v = _c2r(v)
+        z = _c2r(z)
+        w = _c2r(w)
+
+        r = 2 * cauchy_mult(v, z, w, backend="GPU")
+        return _r2c(r)
 
     def log_vandermonde(v, x, L):
-        """
-        v: (..., N)
-        x: (..., N)
-        returns: (..., L) \sum v x^l
-        """
-        vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
+        expr = "ComplexMult(v, ComplexExp(ComplexMult(x, l)))"
+        vandermonde_mult = Genred(
+            expr,
+            [
+                "v = Vj(2)",
+                "x = Vj(2)",
+                "l = Vi(2)",
+            ],
+            reduction_op="Sum",
+            axis=1,
         )
-        vandermonde_prod = contract(
-            "... n, ... n l -> ... l", v, vandermonde_matrix
-        )  # (... L)
-        return 2 * vandermonde_prod.real
+
+        l = torch.arange(L).to(x)
+        v, x, l = _broadcast_dims(v, x, l)
+        v = _c2r(v)
+        x = _c2r(x)
+        l = _c2r(l)
+
+        r = vandermonde_mult(v, x, l, backend="GPU")
+        return 2 * _r2c(r).real
 
     def log_vandermonde_transpose(u, v, x, L):
-        vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
+        """
+        u: ... H L
+        v: ... H N
+        x: ... H N
+        Returns: ... H N
+
+        V = Vandermonde(a, L) : (H N L)
+        contract_L(V * u * v)
+        """
+        expr = "ComplexMult(ComplexMult(v, u), ComplexExp(ComplexMult(x, l)))"
+        vandermonde_mult = Genred(
+            expr,
+            [
+                "u = Vj(2)",
+                "v = Vi(2)",
+                "x = Vi(2)",
+                "l = Vj(2)",
+            ],
+            reduction_op="Sum",
+            axis=1,
         )
-        vandermonde_prod = contract(
-            "... l, ... n, ... n l -> ... n",
-            u.to(x),
-            v.to(x),
-            vandermonde_matrix,
-        )  # (... L)
-        return vandermonde_prod
+
+        l = torch.arange(L).to(x)
+        u, v, x, l = _broadcast_dims(u, v, x, l)
+        u = _c2r(u)
+        v = _c2r(v)
+        x = _c2r(x)
+        l = _c2r(l)
+
+        r = vandermonde_mult(u, v, x, l, backend="GPU")
+        return _r2c(r)
 
 except ImportError:
     has_pykeops = False
@@ -150,8 +174,8 @@ except ImportError:
         returns: (..., L) \sum v x^l
         """
         vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
-        )
+            x.unsqueeze(-1) * torch.arange(L).to(x)
+        )  # (... N L)
         vandermonde_prod = contract(
             "... n, ... n l -> ... l", v, vandermonde_matrix
         )  # (... L)
@@ -159,8 +183,8 @@ except ImportError:
 
     def log_vandermonde_transpose(u, v, x, L):
         vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
-        )
+            x.unsqueeze(-1) * torch.arange(L).to(x)
+        )  # (... N L)
         vandermonde_prod = contract(
             "... l, ... n, ... n l -> ... n",
             u.to(x),
@@ -208,7 +232,7 @@ def Activation(activation=None, dim=-1):
     else:
         raise NotImplementedError(
             "hidden activation '{}' is not implemented".format(activation)
-        )  # Added closing parenthesis here
+        )
 
 
 def LinearActivation(
@@ -256,8 +280,8 @@ class DropoutNd(nn.Module):
             if not self.transposed:
                 X = rearrange(X, "b d ... -> b ... d")
             mask_shape = (
-                X.shape[:2] + (1,) * (X.ndim - 2) if self.tie else X.shape,
-            )  # Add comma here
+                X.shape[:2] + (1,) * (X.ndim - 2) if self.tie else X.shape
+            )
             mask = torch.rand(*mask_shape, device=X.device) < 1.0 - self.p
             X = X * mask * (1.0 / (1 - self.p))
             if not self.transposed:
@@ -439,8 +463,9 @@ def nplr(measure, N, rank=1, dtype=torch.float, diagonalize_precision=True):
 
     # We require AP to be nearly skew-symmetric
     _A = AP + AP.transpose(-1, -2)
-    err = torch.sum((_A - _A[0, 0] * torch.eye(N)) ** 2) / N
-    if err > 1e-5:  # if not torch.allclose(_A - _A[0,0]*torch.eye(N), torch.zeros(N, N), atol=1e-5):
+    if (
+        err := torch.sum((_A - _A[0, 0] * torch.eye(N)) ** 2) / N
+    ) > 1e-5:  # if not torch.allclose(_A - _A[0,0]*torch.eye(N), torch.zeros(N, N), atol=1e-5):
         print("WARNING: HiPPO matrix not skew symmetric", err)
 
     # Take advantage of identity + skew-symmetric form to calculate real and imaginary parts separately
@@ -454,6 +479,8 @@ def nplr(measure, N, rank=1, dtype=torch.float, diagonalize_precision=True):
     if diagonalize_precision:
         w_im, V = w_im.to(cdtype), V.to(cdtype)
     w = w_re + 1j * w_im
+    # Check: V w V^{-1} = A
+    # print("check", V @ torch.diag_embed(w) @ V.conj().transpose(-1, -2))
 
     # Only keep half of each conjugate pair
     _, idx = torch.sort(w.imag)
@@ -473,12 +500,12 @@ def nplr(measure, N, rank=1, dtype=torch.float, diagonalize_precision=True):
         V[1, -1] = 2**-0.5 * 1j
 
     _AP = V @ torch.diag_embed(w) @ V.conj().transpose(-1, -2)
-    err = torch.sum((2 * _AP.real - AP) ** 2) / N
-    if err > 1e-5:
+    if (err := torch.sum((2 * _AP.real - AP) ** 2) / N) > 1e-5:
         print(
             "Warning: Diagonalization of A matrix not numerically precise - error",
             err,
         )
+    # print("check", V @ torch.diag_embed(w) @ V.conj().transpose(-1, -2))
 
     V_inv = V.conj().transpose(-1, -2)
 
@@ -600,12 +627,13 @@ combinations = {
 
 def combination(measures, N, R, S, **ssm_args):
     if isinstance(measures, str):
-        measures = combinations[measures] if measures in combinations else [measures]
+        measures = (
+            combinations[measures] if measures in combinations else [measures]
+        )
 
     assert (
         S % len(measures) == 0
     ), f"{S} independent trainable SSM copies must be multiple of {len(measures)} different measures"
-    
     w, P, B, V = zip(
         *[
             ssm(measure, N, R, S // len(measures), **ssm_args)
@@ -824,11 +852,13 @@ class SSKernelNPLR(OptimModule):
         (C, H, L) convolution kernel (generally C=1)
         (B, H, L) output from initial state
         """
+
         # Initialize C~ if necessary (done in forward pass so it's on the correct device)
         if self.L.item() == 0 and self.l_max is not None and self.l_max > 0:
             self._setup_C(self.l_max)
 
         # Handle sampling rate logic
+        # The idea is that this kernel's length (in continuous units) is self.L, while we are asked to provide a kernel of length L at (relative) frequency rate
         if L is None:
             L = round(self.L.item() / rate)
 
@@ -853,7 +883,9 @@ class SSKernelNPLR(OptimModule):
             C = C * mask
 
         # Get FFT nodes of right length
-        omega, z = self._omega(discrete_L, dtype=w.dtype, device=w.device, cache=(rate == 1.0))
+        omega, z = self._omega(
+            discrete_L, dtype=w.dtype, device=w.device, cache=(rate == 1.0)
+        )
 
         # Broadcast parameters to same hidden features H
         B = repeat(B, "1 t n -> 1 (v t) n", v=self.repeat)
@@ -893,17 +925,7 @@ class SSKernelNPLR(OptimModule):
             r = cauchy_conj(v, z, w)
         else:
             r = cauchy_naive(v, z, w)
-        
-        # Get the actual dimensions of r
-        B_dim, C_dim, H_dim, L_dim = r.shape
-        
-        # Reshape dt to match r's dimensions while preserving its values
-        dt = dt.view(-1)  # Flatten dt
-        dt = dt.expand(H_dim)  # Expand to match the H dimension
-        dt_expanded = dt.view(1, 1, H_dim, 1).expand(B_dim, C_dim, H_dim, L_dim)
-        
-        # Multiply with properly expanded dt
-        r = r * dt_expanded
+        r = r * dt[None, None, :, None]  # (B+1+R, C+R, H, L)
 
         # Low-rank Woodbury correction
         if self.rank == 1:
@@ -1578,10 +1600,10 @@ class S4(nn.Module):
         self,
         d_model,
         d_state=64,
-        H=12,  # Added parameter for number of independent SSM copies
         l_max=None,
-        channels=30,  # Example value
+        channels=1,
         bidirectional=False,
+        # Arguments for position-wise feedforward components
         activation="gelu",
         postact="glu",
         hyper_act=None,
@@ -1591,11 +1613,41 @@ class S4(nn.Module):
         gate=None,
         transposed=True,
         verbose=False,
+        # SSM Kernel arguments
         **kernel_args,
     ):
+        """
+        d_state: the dimension of the state, also denoted by N
+        l_max: the maximum kernel length, also denoted by L. Set l_max=None to always use a global kernel
+        channels: can be interpreted as a number of "heads"; the SSM is a map from a 1-dim to C-dim sequence. It's not recommended to change this unless desperate for things to tune; instead, increase d_model for larger models
+        bidirectional: if True, convolution kernel will be two-sided
+
+        Position-wise feedforward components:
+        --------------------
+        activation: activation in between SS and FF
+        postact: activation after FF
+        hyper_act: use a "hypernetwork" multiplication (experimental)
+        dropout: standard dropout argument. tie_dropout=True ties the dropout mask across the sequence length, emulating nn.Dropout1d
+
+        Other arguments:
+        --------------------
+        transposed: choose backbone axis ordering of (B, L, H) (if False) or (B, H, L) (if True) [B=batch size, L=sequence length, H=hidden dimension]
+        gate: add gated activation (GSS)
+        bottleneck: reduce SSM dimension (GSS)
+
+        See the class SSKernel for the kernel constructor which accepts kernel_args. Relevant options that are worth considering and tuning include "mode" + "measure", "dt_min", "dt_max", "lr"
+
+        Other options are all experimental and should not need to be configured
+        """
+
         super().__init__()
+        if verbose:
+            log.info(
+                f"Constructing S4 (H, N, L) = ({d_model}, {d_state}, {l_max})"
+            )
+
         self.d_model = d_model
-        self.H = H  # Updated to use the passed parameter
+        self.H = d_model
         self.N = d_state
         self.L = l_max
         self.bidirectional = bidirectional
@@ -1658,22 +1710,13 @@ class S4(nn.Module):
         dropout_fn = DropoutNd if tie_dropout else nn.Dropout
         self.dropout = dropout_fn(dropout) if dropout > 0.0 else nn.Identity()
         # position-wise output transform to mix features
-        if self.transposed:
-            # For transposed case, we need to handle the channel dimension properly
-            self.output_linear = LinearActivation(
-                self.channels * self.H,  # 30 * 12 = 360
-                self.d_model * (1 if self.gate is None else self.gate),
-                transposed=self.transposed,
-                activation=postact,
-                activate=True,
-            )
-        else:
-            # For non-transposed case, use Conv1d
-            self.output_linear = nn.Conv1d(
-                self.channels * self.H,  # 30 * 12 = 360
-                self.d_model * (1 if self.gate is None else self.gate),
-                kernel_size=1
-            )
+        self.output_linear = LinearActivation(
+            self.H * self.channels,
+            self.d_model * (1 if self.gate is None else self.gate),
+            transposed=self.transposed,
+            activation=postact,
+            activate=True,
+        )
 
     def forward(self, u, state=None, rate=1.0, lengths=None, **kwargs):
         """
@@ -1715,20 +1758,14 @@ class S4(nn.Module):
 
         # Compute SS Kernel
         L_kernel = L if self.L is None else min(L, round(self.L / rate))
-        k, k_state = self.kernel(L=L_kernel, rate=rate, state=state)  # (C H L) (B C H L)
+        k, k_state = self.kernel(
+            L=L_kernel, rate=rate, state=state
+        )  # (C H L) (B C H L)
 
         # Convolution
         if self.bidirectional:
-            # Handle case where number of channels is not even
-            C = k.size(0)
-            if C % 2 != 0:
-                # Pad with zeros to make it even
-                k = torch.cat([k, torch.zeros_like(k[:1])], dim=0)
-            
-            # Now split into forward and backward kernels
-            k0, k1 = k.chunk(2, dim=0)
+            k0, k1 = rearrange(k, "(s c) h l -> s c h l", s=2)
             k = F.pad(k0, (0, L)) + F.pad(k1.flip(-1), (L, 0))
-        
         k_f = torch.fft.rfft(k, n=L_kernel + L)  # (C H L)
         u_f = torch.fft.rfft(u, n=L_kernel + L)  # (B H L)
         y_f = contract("bhl,chl->bchl", u_f, k_f)
@@ -1739,8 +1776,10 @@ class S4(nn.Module):
 
         # Compute state update
         if state is not None:
-            assert not self.bidirectional, "Bidirectional not supported with state forwarding"
-            y = y + k_state
+            assert (
+                not self.bidirectional
+            ), "Bidirectional not supported with state forwarding"
+            y = y + k_state  #
             next_state = self.kernel.forward_state(u, state)
         else:
             next_state = None
@@ -1751,18 +1790,14 @@ class S4(nn.Module):
             y = self.hyper_activation(yh) * y
 
         # Reshape to flatten channels
-        y = rearrange(y, "b c h l -> b (c h) l")  # [B, C*H, L]
+        y = rearrange(y, "... c h l -> ... (c h) l")
 
         y = self.dropout(self.activation(y))
 
         if not self.transposed:
-            # For Conv1d case, input should be [B, C*H, L]
-            y = self.output_linear(y)
-        else:
-            # For transposed case, reshape properly for linear layer
-            y = y.transpose(-1, -2)  # [B, L, C*H]
-            y = self.output_linear(y)  # [B, L, d_model]
-            y = y.transpose(-1, -2)  # [B, d_model, L]
+            y = y.transpose(-1, -2)
+
+        y = self.output_linear(y)
 
         if self.gate is not None:
             y = self.output_gate(y * v)
