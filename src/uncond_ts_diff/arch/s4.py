@@ -1799,7 +1799,7 @@ class S4(nn.Module):
             y = self.hyper_activation(yh) * y
 
         # Reshape to flatten channels
-        y = rearrange(y, "b c h l -> b (h c) l")  # Changed from "... c h l -> ... (c h) l"
+        y = rearrange(y, "b c h l -> b (c h) l")
 
         y = self.dropout(self.activation(y))
 
