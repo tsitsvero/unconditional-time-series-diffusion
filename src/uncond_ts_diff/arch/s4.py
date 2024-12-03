@@ -256,7 +256,8 @@ class DropoutNd(nn.Module):
             if not self.transposed:
                 X = rearrange(X, "b d ... -> b ... d")
             mask_shape = (
-                X.shape[:2] + (1,) * (X.ndim - 2) if self.tie else X.shape
+                X.shape[:2] + (1,) * (X.ndim - 2) if self.tie else X.shape,
+            )  # Add comma here
             mask = torch.rand(*mask_shape, device=X.device) < 1.0 - self.p
             X = X * mask * (1.0 / (1 - self.p))
             if not self.transposed:
