@@ -110,8 +110,8 @@ try:  # Try pykeops
 
     def log_vandermonde_transpose(u, v, x, L):
         vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L).to(x)
-        )  # (... N L)
+            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
+        )
         vandermonde_prod = contract(
             "... l, ... n, ... n l -> ... n",
             u.to(x),
