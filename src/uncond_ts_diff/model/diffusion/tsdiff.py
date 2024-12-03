@@ -77,11 +77,15 @@ class TSDiff(TSDiffBase):
         context = data["past_target"]
         context_observed = data.get("past_observed_values", None)
         
-        # Add debug logging
-        scaler_output = self.scaler(context, context_observed)
-        logging.debug(f"Scaler output type: {type(scaler_output)}")
-        if isinstance(scaler_output, tuple):
-            logging.debug(f"Scaler output length: {len(scaler_output)}")
+        prior = context[:, : -self.context_length]
+        context = context[:, -self.context_length :]
+        context_observed = context_observed[:, -self.context_length :]
+
+        # Single scaler call with proper handling
+        if self.normalization == "zscore":
+            scaler_output = self.scaler(context, context_observed, data["stats"])
+        else:
+            scaler_output = self.scaler(context, context_observed)
         
         # Handle scaler output
         if isinstance(scaler_output, tuple):
@@ -94,19 +98,9 @@ class TSDiff(TSDiffBase):
         else:
             # Handle case where scaler returns a single value
             scaled_context = scaler_output
-            scale = None
+            scale = torch.ones_like(context)  # Default scale if none provided
 
-        prior = context[:, : -self.context_length]
-        context = context[:, -self.context_length :]
-        context_observed = context_observed[:, -self.context_length :]
-        if self.normalization == "zscore":
-            scaled_context, scale = self.scaler(
-                context, context_observed, data["stats"]
-            )
-        else:
-            scaled_context, scale = self.scaler(context, context_observed)
         features = []
-
         scaled_prior = prior / scale
         scaled_future = data["future_target"] / scale
         features.append(scale.log())
