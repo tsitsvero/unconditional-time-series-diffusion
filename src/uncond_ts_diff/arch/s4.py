@@ -894,9 +894,15 @@ class SSKernelNPLR(OptimModule):
         else:
             r = cauchy_naive(v, z, w)
         
-        # Ensure dt is broadcast correctly to match r's dimensions
-        dt_expanded = dt.view(1, 1, -1, 1)  # Add dimensions to match r's shape
-        r = r * dt_expanded  # (B+1+R, C+R, H, L)
+        # Get the actual dimensions of r
+        B_dim, C_dim, H_dim, L_dim = r.shape
+        
+        # Reshape dt to match r's dimensions while preserving its values
+        dt = dt.expand(H_dim)  # Expand to match the H dimension
+        dt_expanded = dt.view(1, 1, H_dim, 1).expand(B_dim, C_dim, H_dim, L_dim)
+        
+        # Multiply with properly expanded dt
+        r = r * dt_expanded
 
         # Low-rank Woodbury correction
         if self.rank == 1:
