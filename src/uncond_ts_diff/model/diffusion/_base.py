@@ -306,15 +306,25 @@ class TSDiffBase(pl.LightningModule):
             0, self.timesteps, (x.shape[0],), device=device
         ).long()
         elbo_loss, xt, noise = self.p_losses(x, t, features, loss_type="l2")
+        
+        # Store outputs for epoch end processing
+        if not hasattr(self, "training_step_outputs"):
+            self.training_step_outputs = []
+        self.training_step_outputs.append({
+            "loss": elbo_loss,
+            "elbo_loss": elbo_loss,
+        })
+        
         return {
             "loss": elbo_loss,
             "elbo_loss": elbo_loss,
         }
 
     def on_train_epoch_end(self):
-        avg_loss = torch.stack([x["loss"] for x in self.training_step_outputs]).mean()
-        self.log("train_loss", avg_loss, prog_bar=True)
-        self.training_step_outputs = []
+        if hasattr(self, "training_step_outputs") and self.training_step_outputs:
+            avg_loss = torch.stack([x["loss"] for x in self.training_step_outputs]).mean()
+            self.log("train_loss", avg_loss, prog_bar=True)
+            self.training_step_outputs = []
 
     def validation_step(self, data, idx):
         device = next(self.backbone.parameters()).device
@@ -326,13 +336,30 @@ class TSDiffBase(pl.LightningModule):
             0, self.timesteps, (x.shape[0],), device=device
         ).long()
         elbo_loss, xt, noise = self.p_losses(x, t, features, loss_type="l2")
+        
+        # Store outputs for epoch end processing
+        if not hasattr(self, "validation_step_outputs"):
+            self.validation_step_outputs = []
+        self.validation_step_outputs.append({
+            "loss": elbo_loss,
+            "elbo_loss": elbo_loss,
+        })
+        
         return {
             "loss": elbo_loss,
             "elbo_loss": elbo_loss,
         }
 
-    def validation_epoch_end(self, outputs):
-        epoch_loss = sum(x["loss"] for x in outputs) / len(outputs)
-        elbo_loss = sum(x["elbo_loss"] for x in outputs) / len(outputs)
-        self.log("valid_loss", epoch_loss)
-        self.log("valid_elbo_loss", elbo_loss)
+    def on_validation_epoch_end(self):
+        # Calculate average losses
+        if hasattr(self, "validation_step_outputs") and self.validation_step_outputs:
+            outputs = self.validation_step_outputs
+            epoch_loss = torch.stack([x["loss"] for x in outputs]).mean()
+            elbo_loss = torch.stack([x["elbo_loss"] for x in outputs]).mean()
+            
+            # Log metrics
+            self.log("valid_loss", epoch_loss)
+            self.log("valid_elbo_loss", elbo_loss)
+            
+            # Clear the outputs list
+            self.validation_step_outputs = []
