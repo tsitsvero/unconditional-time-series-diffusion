@@ -1763,14 +1763,20 @@ class S4(nn.Module):
 
         # Compute SS Kernel
         L_kernel = L if self.L is None else min(L, round(self.L / rate))
-        k, k_state = self.kernel(
-            L=L_kernel, rate=rate, state=state
-        )  # (C H L) (B C H L)
+        k, k_state = self.kernel(L=L_kernel, rate=rate, state=state)  # (C H L) (B C H L)
 
         # Convolution
         if self.bidirectional:
-            k0, k1 = rearrange(k, "(s c) h l -> s c h l", s=2)
+            # Handle case where number of channels is not even
+            C = k.size(0)
+            if C % 2 != 0:
+                # Pad with zeros to make it even
+                k = torch.cat([k, torch.zeros_like(k[:1])], dim=0)
+            
+            # Now split into forward and backward kernels
+            k0, k1 = k.chunk(2, dim=0)
             k = F.pad(k0, (0, L)) + F.pad(k1.flip(-1), (L, 0))
+        
         k_f = torch.fft.rfft(k, n=L_kernel + L)  # (C H L)
         u_f = torch.fft.rfft(u, n=L_kernel + L)  # (B H L)
         y_f = contract("bhl,chl->bchl", u_f, k_f)
@@ -1781,10 +1787,8 @@ class S4(nn.Module):
 
         # Compute state update
         if state is not None:
-            assert (
-                not self.bidirectional
-            ), "Bidirectional not supported with state forwarding"
-            y = y + k_state  #
+            assert not self.bidirectional, "Bidirectional not supported with state forwarding"
+            y = y + k_state
             next_state = self.kernel.forward_state(u, state)
         else:
             next_state = None
