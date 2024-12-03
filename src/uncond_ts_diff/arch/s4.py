@@ -68,17 +68,30 @@ try:  # Try pykeops
     def cauchy_conj(v, z, w):
         """Cauchy kernel with conjugated kernel points"""
         try:
-            # First try GPU implementation
-            r = 2 * cauchy_mult(v, z, w, backend="GPU")
-        except (KeyError, RuntimeError) as e:
-            logger.warning(f"GPU implementation failed, falling back to CPU. Error: {str(e)}")
-            try:
-                r = 2 * cauchy_mult(v, z, w, backend="CPU")
-            except Exception as e:
-                logger.warning(f"CPU implementation failed, using naive implementation. Error: {str(e)}")
-                # Naive implementation (v, z, w are B x N)
-                cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj()) # (B x N x L)
-                return 2 * torch.sum(cauchy_matrix, dim=1)
+            if has_cauchy_extension:
+                # Use CUDA extension if available
+                r = 2 * cauchy_mult(v, z, w, backend="GPU")
+            else:
+                # Fall back to pykeops if available
+                if has_pykeops:
+                    expr = "Sum(v/(z-w))"
+                    cauchy_mult = Genred(
+                        expr,
+                        ["v = Vj(2)", "z = Vi(2)", "w = Vj(2)"],
+                        reduction_op="Sum",
+                        axis=1,
+                    )
+                    v, z, w = _broadcast_dims(v, z, w)
+                    r = 2 * cauchy_mult(v, z, w, backend="CPU")
+                else:
+                    # Fall back to naive implementation
+                    cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj())
+                    r = 2 * torch.sum(cauchy_matrix, dim=1)
+        except Exception as e:
+            logger.warning(f"Cauchy kernel computation failed, using naive implementation. Error: {str(e)}")
+            # Naive implementation (v, z, w are B x N)
+            cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj())
+            r = 2 * torch.sum(cauchy_matrix, dim=1)
         return r
 
     def log_vandermonde(v, x, L):
