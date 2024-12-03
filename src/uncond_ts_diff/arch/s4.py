@@ -88,7 +88,7 @@ try:  # Try pykeops
                     cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj())
                     r = 2 * torch.sum(cauchy_matrix, dim=1)
         except Exception as e:
-            logger.warning(f"Cauchy kernel computation failed, using naive implementation. Error: {str(e)}")
+            log.warning(f"Cauchy kernel computation failed, using naive implementation. Error: {str(e)}")
             # Naive implementation (v, z, w are B x N)
             cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj())
             r = 2 * torch.sum(cauchy_matrix, dim=1)
