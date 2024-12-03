@@ -95,59 +95,31 @@ try:  # Try pykeops
         return r
 
     def log_vandermonde(v, x, L):
-        expr = "ComplexMult(v, ComplexExp(ComplexMult(x, l)))"
-        vandermonde_mult = Genred(
-            expr,
-            [
-                "v = Vj(2)",
-                "x = Vj(2)",
-                "l = Vi(2)",
-            ],
-            reduction_op="Sum",
-            axis=1,
-        )
-
-        l = torch.arange(L).to(x)
-        v, x, l = _broadcast_dims(v, x, l)
-        v = _c2r(v)
-        x = _c2r(x)
-        l = _c2r(l)
-
-        r = vandermonde_mult(v, x, l, backend="GPU")
-        return 2 * _r2c(r).real
+        """
+        v: (..., N)
+        x: (..., N)
+        returns: (..., L) \sum v x^l
+        """
+        # Fix the parentheses
+        vandermonde_matrix = torch.exp(
+            x.unsqueeze(-1) * torch.arange(L).to(x)
+        )  # (... N L)
+        vandermonde_prod = contract(
+            "... n, ... n l -> ... l", v, vandermonde_matrix
+        )  # (... L)
+        return 2 * vandermonde_prod.real
 
     def log_vandermonde_transpose(u, v, x, L):
-        """
-        u: ... H L
-        v: ... H N
-        x: ... H N
-        Returns: ... H N
-
-        V = Vandermonde(a, L) : (H N L)
-        contract_L(V * u * v)
-        """
-        expr = "ComplexMult(ComplexMult(v, u), ComplexExp(ComplexMult(x, l)))"
-        vandermonde_mult = Genred(
-            expr,
-            [
-                "u = Vj(2)",
-                "v = Vi(2)",
-                "x = Vi(2)",
-                "l = Vj(2)",
-            ],
-            reduction_op="Sum",
-            axis=1,
-        )
-
-        l = torch.arange(L).to(x)
-        u, v, x, l = _broadcast_dims(u, v, x, l)
-        u = _c2r(u)
-        v = _c2r(v)
-        x = _c2r(x)
-        l = _c2r(l)
-
-        r = vandermonde_mult(u, v, x, l, backend="GPU")
-        return _r2c(r)
+        vandermonde_matrix = torch.exp(
+            x.unsqueeze(-1) * torch.arange(L).to(x)
+        )  # (... N L)
+        vandermonde_prod = contract(
+            "... l, ... n, ... n l -> ... n",
+            u.to(x),
+            v.to(x),
+            vandermonde_matrix,
+        )  # (... L)
+        return vandermonde_prod
 
 except ImportError:
     has_pykeops = False
@@ -285,7 +257,6 @@ class DropoutNd(nn.Module):
                 X = rearrange(X, "b d ... -> b ... d")
             mask_shape = (
                 X.shape[:2] + (1,) * (X.ndim - 2) if self.tie else X.shape
-            )
             mask = torch.rand(*mask_shape, device=X.device) < 1.0 - self.p
             X = X * mask * (1.0 / (1 - self.p))
             if not self.transposed:
@@ -631,6 +602,7 @@ def combination(measures, N, R, S, **ssm_args):
         measures = (
             combinations[measures] if measures in combinations else [measures]
         )
+    )
 
     assert (
         S % len(measures) == 0
