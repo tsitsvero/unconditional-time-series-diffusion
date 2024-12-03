@@ -1608,7 +1608,6 @@ class S4(nn.Module):
         l_max=None,
         channels=1,
         bidirectional=False,
-        # Arguments for position-wise feedforward components
         activation="gelu",
         postact="glu",
         hyper_act=None,
@@ -1618,7 +1617,6 @@ class S4(nn.Module):
         gate=None,
         transposed=True,
         verbose=False,
-        # SSM Kernel arguments
         **kernel_args,
     ):
         """
@@ -1715,13 +1713,17 @@ class S4(nn.Module):
         dropout_fn = DropoutNd if tie_dropout else nn.Dropout
         self.dropout = dropout_fn(dropout) if dropout > 0.0 else nn.Identity()
         # position-wise output transform to mix features
-        self.output_linear = LinearActivation(
-            self.H * self.channels,
-            self.d_model * (1 if self.gate is None else self.gate),
-            transposed=self.transposed,
-            activation=postact,
-            activate=True,
-        )
+        if self.transposed:
+            self.output_linear = nn.Linear(
+                self.H * self.channels,
+                self.d_model * (1 if self.gate is None else self.gate)
+            )
+        else:
+            self.output_linear = nn.Conv1d(
+                self.H * self.channels,
+                self.d_model * (1 if self.gate is None else self.gate),
+                kernel_size=1
+            )
 
     def forward(self, u, state=None, rate=1.0, lengths=None, **kwargs):
         """
@@ -1799,14 +1801,18 @@ class S4(nn.Module):
             y = self.hyper_activation(yh) * y
 
         # Reshape to flatten channels
-        y = rearrange(y, "b c h l -> b (c h) l")
+        y = rearrange(y, "b c h l -> b (c h) l")  # [B, C*H, L]
 
         y = self.dropout(self.activation(y))
 
         if not self.transposed:
-            y = y.transpose(-1, -2)
-
-        y = self.output_linear(y)
+            # For Conv1d case, input should be [B, C, L]
+            y = self.output_linear(y)
+        else:
+            # For Linear case, input should be [B, L, C]
+            y = y.transpose(-1, -2)  # [B, L, C*H]
+            y = self.output_linear(y)  # [B, L, d_model]
+            y = y.transpose(-1, -2)  # [B, d_model, L]
 
         if self.gate is not None:
             y = self.output_gate(y * v)
