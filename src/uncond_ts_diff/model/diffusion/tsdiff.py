@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 import copy
+import logging
 
 import torch
 from gluonts.torch.util import lagged_sequence_values
@@ -72,11 +73,32 @@ class TSDiff(TSDiffBase):
         ]
 
     def _extract_features(self, data):
-        prior = data["past_target"][:, : -self.context_length]
-        context = data["past_target"][:, -self.context_length :]
-        context_observed = data["past_observed_values"][
-            :, -self.context_length :
-        ]
+        # Get context data
+        context = data["past_target"]
+        context_observed = data.get("past_observed_values", None)
+        
+        # Add debug logging
+        scaler_output = self.scaler(context, context_observed)
+        logging.debug(f"Scaler output type: {type(scaler_output)}")
+        if isinstance(scaler_output, tuple):
+            logging.debug(f"Scaler output length: {len(scaler_output)}")
+        
+        # Handle scaler output
+        if isinstance(scaler_output, tuple):
+            if len(scaler_output) == 2:
+                scaled_context, scale = scaler_output
+            else:
+                # Handle case where scaler returns more values
+                scaled_context = scaler_output[0]
+                scale = scaler_output[1]
+        else:
+            # Handle case where scaler returns a single value
+            scaled_context = scaler_output
+            scale = None
+
+        prior = context[:, : -self.context_length]
+        context = context[:, -self.context_length :]
+        context_observed = context_observed[:, -self.context_length :]
         if self.normalization == "zscore":
             scaled_context, scale = self.scaler(
                 context, context_observed, data["stats"]
@@ -127,7 +149,7 @@ class TSDiff(TSDiffBase):
         if not self.use_features:
             features = None
 
-        return x, scale[:, :, None], features
+        return x, scale, features
 
     @torch.no_grad()
     def sample_n(
