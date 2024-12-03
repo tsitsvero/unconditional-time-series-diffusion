@@ -898,6 +898,7 @@ class SSKernelNPLR(OptimModule):
         B_dim, C_dim, H_dim, L_dim = r.shape
         
         # Reshape dt to match r's dimensions while preserving its values
+        dt = dt.view(-1)  # Flatten dt
         dt = dt.expand(H_dim)  # Expand to match the H dimension
         dt_expanded = dt.view(1, 1, H_dim, 1).expand(B_dim, C_dim, H_dim, L_dim)
         
