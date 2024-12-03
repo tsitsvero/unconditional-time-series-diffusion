@@ -66,28 +66,20 @@ try:  # Try pykeops
         return tensors
 
     def cauchy_conj(v, z, w):
-        """Pykeops version"""
-        expr_num = "z * ComplexReal(v) - Real2Complex(Sum(v * w))"
-        expr_denom = "ComplexMult(z-w, z-Conj(w))"
-
-        cauchy_mult = Genred(
-            f"ComplexDivide({expr_num}, {expr_denom})",
-            [
-                "v = Vj(2)",
-                "z = Vi(2)",
-                "w = Vj(2)",
-            ],
-            reduction_op="Sum",
-            axis=1,
-        )
-
-        v, z, w = _broadcast_dims(v, z, w)
-        v = _c2r(v)
-        z = _c2r(z)
-        w = _c2r(w)
-
-        r = 2 * cauchy_mult(v, z, w, backend="GPU")
-        return _r2c(r)
+        """Cauchy kernel with conjugated kernel points"""
+        try:
+            # First try GPU implementation
+            r = 2 * cauchy_mult(v, z, w, backend="GPU")
+        except (KeyError, RuntimeError) as e:
+            logger.warning(f"GPU implementation failed, falling back to CPU. Error: {str(e)}")
+            try:
+                r = 2 * cauchy_mult(v, z, w, backend="CPU")
+            except Exception as e:
+                logger.warning(f"CPU implementation failed, using naive implementation. Error: {str(e)}")
+                # Naive implementation (v, z, w are B x N)
+                cauchy_matrix = v.unsqueeze(-1) / (z.unsqueeze(-2) - w.unsqueeze(-1).conj()) # (B x N x L)
+                return 2 * torch.sum(cauchy_matrix, dim=1)
+        return r
 
     def log_vandermonde(v, x, L):
         expr = "ComplexMult(v, ComplexExp(ComplexMult(x, l)))"
