@@ -208,6 +208,7 @@ def Activation(activation=None, dim=-1):
     else:
         raise NotImplementedError(
             "hidden activation '{}' is not implemented".format(activation)
+        )  # Added closing parenthesis here
 
 
 def LinearActivation(
