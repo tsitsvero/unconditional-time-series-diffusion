@@ -101,8 +101,8 @@ try:  # Try pykeops
         returns: (..., L) \sum v x^l
         """
         vandermonde_matrix = torch.exp(
-            x.unsqueeze(-1) * torch.arange(L, device=x.device)
-        )  # (... N L)
+            x.unsqueeze(-1) * torch.arange(L, device=x.device)  # (... N L)
+        )
         vandermonde_prod = contract(
             "... n, ... n l -> ... l", v, vandermonde_matrix
         )  # (... L)
