@@ -505,7 +505,7 @@ def nplr(measure, N, rank=1, dtype=torch.float, diagonalize_precision=True):
         V[1, -1] = 2**-0.5 * 1j
 
     _AP = V @ torch.diag_embed(w) @ V.conj().transpose(-1, -2)
-    if (err := torch.sum((2 * _AP.real - AP) ** 2) / N) > 1e-5:
+    if (err := torch.sum((2 * _AP.real - AP) ** 2) / N > 1e-5:
         print(
             "Warning: Diagonalization of A matrix not numerically precise - error",
             err,
@@ -1714,13 +1714,18 @@ class S4(nn.Module):
         self.dropout = dropout_fn(dropout) if dropout > 0.0 else nn.Identity()
         # position-wise output transform to mix features
         if self.transposed:
-            self.output_linear = nn.Linear(
-                self.H * self.channels,
-                self.d_model * (1 if self.gate is None else self.gate)
+            # For transposed case, we need to handle the channel dimension properly
+            self.output_linear = LinearActivation(
+                self.channels * self.H,  # Input features
+                self.d_model * (1 if self.gate is None else self.gate),  # Output features
+                transposed=self.transposed,
+                activation=postact,
+                activate=True,
             )
         else:
+            # For non-transposed case, use Conv1d
             self.output_linear = nn.Conv1d(
-                self.H * self.channels,
+                self.channels * self.H,
                 self.d_model * (1 if self.gate is None else self.gate),
                 kernel_size=1
             )
@@ -1806,10 +1811,10 @@ class S4(nn.Module):
         y = self.dropout(self.activation(y))
 
         if not self.transposed:
-            # For Conv1d case, input should be [B, C, L]
+            # For Conv1d case, input should be [B, C*H, L]
             y = self.output_linear(y)
         else:
-            # For Linear case, input should be [B, L, C]
+            # For transposed case, reshape properly for linear layer
             y = y.transpose(-1, -2)  # [B, L, C*H]
             y = self.output_linear(y)  # [B, L, d_model]
             y = y.transpose(-1, -2)  # [B, d_model, L]
