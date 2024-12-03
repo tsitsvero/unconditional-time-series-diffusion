@@ -1577,6 +1577,7 @@ class S4(nn.Module):
         self,
         d_model,
         d_state=64,
+        H=12,  # Added parameter for number of independent SSM copies
         l_max=None,
         channels=30,  # Example value
         bidirectional=False,
@@ -1593,7 +1594,7 @@ class S4(nn.Module):
     ):
         super().__init__()
         self.d_model = d_model
-        self.H = 12  # Example value
+        self.H = H  # Updated to use the passed parameter
         self.N = d_state
         self.L = l_max
         self.bidirectional = bidirectional
