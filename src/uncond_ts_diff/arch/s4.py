@@ -600,14 +600,12 @@ combinations = {
 
 def combination(measures, N, R, S, **ssm_args):
     if isinstance(measures, str):
-        measures = (
-            combinations[measures] if measures in combinations else [measures]
-        )
-    )
+        measures = combinations[measures] if measures in combinations else [measures]
 
     assert (
         S % len(measures) == 0
     ), f"{S} independent trainable SSM copies must be multiple of {len(measures)} different measures"
+    
     w, P, B, V = zip(
         *[
             ssm(measure, N, R, S // len(measures), **ssm_args)
