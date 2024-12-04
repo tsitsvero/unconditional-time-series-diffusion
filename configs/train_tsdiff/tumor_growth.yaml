@@ -1,0 +1,18 @@
+batch_size: 32
+dataset: tumor_growth
+device: cuda:0
+diffusion_config: diffusion_small_config
+do_final_eval: true
+eval_every: 10
+freq: D
+gradient_clip_val: 0.5
+init_skip: false
+lr: 0.001
+max_epochs: 200
+model: unconditional
+noise_observed: true
+normalization: mean
+num_batches_per_epoch: 128
+sequence_length: 44  # 30 + 14 (context + prediction)
+setup: generation
+use_features: false
