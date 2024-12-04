@@ -30,6 +30,13 @@ from uncond_ts_diff.utils import (
 )
 
 
+def normalize_freq(freq):
+    """Normalize frequency string to handle both 'H' and 'h' formats."""
+    if isinstance(freq, str):
+        return freq.lower()
+    return freq
+
+
 def create_model(config):
     model = TSDiffCond(
         **getattr(diffusion_configs, config["diffusion_config"]),
@@ -101,7 +108,7 @@ def evaluate_conditional(
 def main(config, log_dir):
     # Load parameters
     dataset_name = config["dataset"]
-    freq = config["freq"]
+    freq = normalize_freq(config["freq"])
     context_length = config["context_length"]
     prediction_length = config["prediction_length"]
     total_length = context_length + prediction_length
@@ -111,7 +118,8 @@ def main(config, log_dir):
 
     # Setup dataset and data loading
     dataset = get_gts_dataset(dataset_name)
-    assert dataset.metadata.freq == freq
+    dataset_freq = normalize_freq(dataset.metadata.freq)
+    assert dataset_freq == freq, f"Dataset frequency '{dataset.metadata.freq}' does not match config frequency '{config['freq']}'"
     assert dataset.metadata.prediction_length == prediction_length
 
     if config["setup"] == "forecasting":
