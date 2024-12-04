@@ -31,6 +31,8 @@ from uncond_ts_diff.utils import (
 )
 import matplotlib.pyplot as plt
 
+import os
+
 guidance_map = {"ddpm": DDPMGuidance, "ddim": DDIMGuidance}
 
 
@@ -243,6 +245,24 @@ def main(config, log_dir):
         num_batches_per_epoch=config["num_batches_per_epoch"],
     )
 
+    # Plot several time series from the training set before training
+    sample_size = 5  # Number of time series to plot
+    sample_data = list(training_data)[:sample_size]  # Get first 5 time series
+
+    plt.figure(figsize=(10, 6))
+    for idx, entry in enumerate(sample_data):
+        target = entry['target']
+        plt.plot(target, label=f'Time Series {idx+1}')
+    plt.legend()
+    plt.title('Sample Time Series from Training Set')
+    plt.xlabel('Time')
+    plt.ylabel('Value')
+    plot_path = os.path.join(log_dir, 'sample_time_series.png')
+    plt.savefig(plot_path)
+    plt.close()
+    print(f"Saving image: 'sample_time_series.png' to {plot_path}")
+    logger.info(f"Saved sample time series plot to {plot_path}")
+
     checkpoint_callback = ModelCheckpoint(
         save_top_k=3,
         monitor=f"{log_monitor}",
@@ -307,26 +327,6 @@ def main(config, log_dir):
             },
             fp,
         )
-
-    # Plot several time series from the training set before training
-    import os
-
-    sample_size = 5  # Number of time series to plot
-    sample_data = list(training_data)[:sample_size]  # Get first 5 time series
-
-    plt.figure(figsize=(10, 6))
-    for idx, entry in enumerate(sample_data):
-        target = entry['target']
-        plt.plot(target, label=f'Time Series {idx+1}')
-    plt.legend()
-    plt.title('Sample Time Series from Training Set')
-    plt.xlabel('Time')
-    plt.ylabel('Value')
-    plot_path = os.path.join(log_dir, 'sample_time_series.png')
-    plt.savefig(plot_path)
-    plt.close()
-    print(f"Saving image: 'sample_time_series.png' to {plot_path}")
-    logger.info(f"Saved sample time series plot to {plot_path}")
 
 
 if __name__ == "__main__":
