@@ -30,6 +30,7 @@ from uncond_ts_diff.utils import (
     MaskInput,
 )
 import matplotlib.pyplot as plt
+import numpy as np
 
 import os
 
@@ -249,16 +250,32 @@ def main(config, log_dir):
     sample_size = 5  # Number of time series to plot
     sample_data = list(training_data)[:sample_size]  # Get first 5 time series
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 8))
     for idx, entry in enumerate(sample_data):
         target = entry['target']
-        plt.plot(target, label=f'Time Series {idx+1}')
+        # Get observed values mask if it exists, otherwise assume all values are observed
+        observed = entry.get('observed_values', np.ones_like(target))
+        
+        # Plot the full time series
+        plt.plot(target, label=f'Time Series {idx+1}', alpha=0.5)
+        
+        # Highlight observed values
+        observed_target = np.where(observed, target, np.nan)
+        plt.plot(observed_target, label=f'TS {idx+1} (observed)', linewidth=2)
+        
+        # Mark missing values with red dots
+        missing_indices = np.where(~observed)[0]
+        missing_values = target[missing_indices]
+        plt.scatter(missing_indices, missing_values, color='red', alpha=0.5, 
+                   label=f'TS {idx+1} (missing)' if idx == 0 else None)
+
     plt.legend()
-    plt.title('Sample Time Series from Training Set')
+    plt.title('Sample Time Series from Training Set\n(Red dots indicate missing values)')
     plt.xlabel('Time')
     plt.ylabel('Value')
+    plt.grid(True, alpha=0.3)
     plot_path = os.path.join(log_dir, 'sample_time_series.png')
-    plt.savefig(plot_path)
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
     print(f"Saving image: 'sample_time_series.png' to {plot_path}")
     logger.info(f"Saved sample time series plot to {plot_path}")
