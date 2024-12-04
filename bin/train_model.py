@@ -325,6 +325,7 @@ def main(config, log_dir):
     plot_path = os.path.join(log_dir, 'sample_time_series.png')
     plt.savefig(plot_path)
     plt.close()
+    print(f"Saving image: 'sample_time_series.png' to {plot_path}")
     logger.info(f"Saved sample time series plot to {plot_path}")
 
 
