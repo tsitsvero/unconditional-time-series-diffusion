@@ -255,6 +255,7 @@ def main(config, log_dir):
         target = entry['target']
         # Get observed values mask if it exists, otherwise assume all values are observed
         observed = entry.get('observed_values', np.ones_like(target))
+        observed = observed.astype(bool)  # Convert to boolean type
         
         # Plot the full time series
         plt.plot(target, label=f'Time Series {idx+1}', alpha=0.5)
@@ -264,10 +265,11 @@ def main(config, log_dir):
         plt.plot(observed_target, label=f'TS {idx+1} (observed)', linewidth=2)
         
         # Mark missing values with red dots
-        missing_indices = np.where(~observed)[0]
-        missing_values = target[missing_indices]
-        plt.scatter(missing_indices, missing_values, color='red', alpha=0.5, 
-                   label=f'TS {idx+1} (missing)' if idx == 0 else None)
+        missing_indices = np.where(~observed)[0]  # Now works with boolean array
+        if len(missing_indices) > 0:  # Only plot if there are missing values
+            missing_values = target[missing_indices]
+            plt.scatter(missing_indices, missing_values, color='red', alpha=0.5, 
+                       label=f'TS {idx+1} (missing)' if idx == 0 else None)
 
     plt.legend()
     plt.title('Sample Time Series from Training Set\n(Red dots indicate missing values)')
