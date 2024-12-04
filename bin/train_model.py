@@ -76,20 +76,22 @@ def create_model(config):
         def debug_p_losses(self, x, t, features=None, loss_type="l2", reduction="mean"):
             print("\nDiffusion step debug:")
             
-            # Input validation and cleaning
+            # Input validation and cleaning - use smaller bounds
             if torch.isnan(x).any() or torch.isinf(x).any():
                 print("WARNING: Input contains NaN/Inf values before normalization")
-                x = torch.nan_to_num(x, nan=0.0, posinf=1e6, neginf=-1e6)
+                x = torch.nan_to_num(x, nan=0.0, posinf=5.0, neginf=-5.0)
             
             # More robust normalization with error checking
             try:
+                # Use more stable normalization
                 batch_mean = x.mean(dim=(1, 2), keepdim=True)
-                batch_std = x.std(dim=(1, 2), keepdim=True)
-                batch_std = torch.clamp(batch_std, min=1e-5)  # Prevent division by zero
+                batch_std = torch.sqrt(
+                    (x - batch_mean).pow(2).mean(dim=(1, 2), keepdim=True) + 1e-5
+                )
                 x = (x - batch_mean) / batch_std
                 
-                # Clip normalized values to prevent extremes
-                x = torch.clamp(x, min=-10.0, max=10.0)
+                # Use tighter clipping bounds
+                x = torch.clamp(x, min=-3.0, max=3.0)
                 
             except RuntimeError as e:
                 print(f"Error during normalization: {e}")
@@ -98,9 +100,9 @@ def create_model(config):
             print(f"Input x shape: {x.shape}, range: [{x.min().item():.3f}, {x.max().item():.3f}]")
             print(f"Timestep t: {t}")
             
-            # Generate and validate noise
+            # Generate and validate noise with tighter bounds
             noise = torch.randn_like(x)
-            noise = torch.clamp(noise, min=-4.0, max=4.0)  # Clip noise to reasonable range
+            noise = torch.clamp(noise, min=-2.0, max=2.0)  # Tighter noise bounds
             print(f"Noise range: [{noise.min().item():.3f}, {noise.max().item():.3f}]")
             
             # Get noisy samples with error checking
@@ -108,8 +110,8 @@ def create_model(config):
                 x_noisy = self.q_sample(x, t, noise=noise)
                 if torch.isnan(x_noisy).any() or torch.isinf(x_noisy).any():
                     print("WARNING: NaN/Inf values in noisy samples")
-                    x_noisy = torch.nan_to_num(x_noisy, nan=0.0, posinf=1e6, neginf=-1e6)
-                    x_noisy = torch.clamp(x_noisy, min=-10.0, max=10.0)
+                    x_noisy = torch.nan_to_num(x_noisy, nan=0.0, posinf=5.0, neginf=-5.0)
+                    x_noisy = torch.clamp(x_noisy, min=-3.0, max=3.0)
                     
             except RuntimeError as e:
                 print(f"Error during noise sampling: {e}")
@@ -117,33 +119,47 @@ def create_model(config):
                 
             print(f"Noisy x range: [{x_noisy.min().item():.3f}, {x_noisy.max().item():.3f}]")
             
-            # Get predicted noise with gradient scaling
-            with torch.cuda.amp.autocast(enabled=False):  # Disable mixed precision here
+            # Get predicted noise with gradient scaling and normalization
+            with torch.amp.autocast(device_type='cuda', enabled=False):
                 predicted_noise = self.backbone(x_noisy, t, features)
                 
-                # Clean predicted noise
+                # Normalize predicted noise
+                pred_mean = predicted_noise.mean(dim=(1, 2), keepdim=True)
+                pred_std = torch.sqrt(
+                    (predicted_noise - pred_mean).pow(2).mean(dim=(1, 2), keepdim=True) + 1e-5
+                )
+                predicted_noise = (predicted_noise - pred_mean) / pred_std
+                
+                # Clean predicted noise with tighter bounds
                 if torch.isnan(predicted_noise).any() or torch.isinf(predicted_noise).any():
                     print("WARNING: NaN/Inf values in predicted noise")
-                    predicted_noise = torch.nan_to_num(predicted_noise, nan=0.0, posinf=1e6, neginf=-1e6)
-                    predicted_noise = torch.clamp(predicted_noise, min=-10.0, max=10.0)
+                    predicted_noise = torch.nan_to_num(predicted_noise, nan=0.0, posinf=2.0, neginf=-2.0)
+                predicted_noise = torch.clamp(predicted_noise, min=-2.0, max=2.0)
                     
             print(f"Predicted noise range: [{predicted_noise.min().item():.3f}, {predicted_noise.max().item():.3f}]")
             print(f"Has NaN in predicted noise: {torch.isnan(predicted_noise).any().item()}")
             
-            # Calculate loss with error checking
+            # Calculate loss with error checking and scaling
             try:
                 if loss_type == "l2":
-                    # Add small epsilon to prevent exact zeros
-                    loss = F.mse_loss(noise + 1e-8, predicted_noise + 1e-8, reduction=reduction)
+                    # Scale inputs to prevent loss explosion
+                    scaled_noise = noise / (noise.abs().max() + 1e-5)
+                    scaled_pred = predicted_noise / (predicted_noise.abs().max() + 1e-5)
+                    loss = F.mse_loss(scaled_noise, scaled_pred, reduction=reduction)
                 elif loss_type == "l1":
-                    loss = F.l1_loss(noise + 1e-8, predicted_noise + 1e-8, reduction=reduction)
+                    scaled_noise = noise / (noise.abs().max() + 1e-5)
+                    scaled_pred = predicted_noise / (predicted_noise.abs().max() + 1e-5)
+                    loss = F.l1_loss(scaled_noise, scaled_pred, reduction=reduction)
                 else:
                     raise NotImplementedError(f"Unknown loss type {loss_type}")
+                
+                # Scale loss to prevent explosion
+                loss = loss * 0.1  # Scale down loss
                     
                 # Validate loss value
                 if torch.isnan(loss) or torch.isinf(loss):
                     print("WARNING: Loss is NaN/Inf, using fallback loss")
-                    loss = torch.tensor(1.0, device=loss.device, requires_grad=True)
+                    loss = torch.tensor(0.1, device=loss.device, requires_grad=True)
                     
                 print(f"Loss value: {loss.item()}")
                     
