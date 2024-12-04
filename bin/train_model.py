@@ -33,6 +33,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import os
+import torch.nn.functional as F
 
 guidance_map = {"ddpm": DDPMGuidance, "ddim": DDIMGuidance}
 
@@ -70,6 +71,40 @@ def create_model(config):
     
     try:
         model = model_cls(**model_kwargs)
+        
+        # Override p_losses method to add debugging
+        def debug_p_losses(self, x, t, features=None, loss_type="l2", reduction="mean"):
+            print("\nDiffusion step debug:")
+            print(f"Input x shape: {x.shape}, range: [{x.min().item():.3f}, {x.max().item():.3f}]")
+            print(f"Timestep t: {t}")
+            
+            # Get noise
+            noise = torch.randn_like(x)
+            print(f"Noise range: [{noise.min().item():.3f}, {noise.max().item():.3f}]")
+            
+            # Get noisy samples
+            x_noisy = self.q_sample(x, t, noise=noise)
+            print(f"Noisy x range: [{x_noisy.min().item():.3f}, {x_noisy.max().item():.3f}]")
+            
+            # Get predicted noise
+            predicted_noise = self.denoise_fn(x_noisy, t, features)
+            print(f"Predicted noise range: [{predicted_noise.min().item():.3f}, {predicted_noise.max().item():.3f}]")
+            print(f"Has NaN in predicted noise: {torch.isnan(predicted_noise).any().item()}")
+            
+            if loss_type == "l2":
+                loss = F.mse_loss(noise, predicted_noise, reduction=reduction)
+                print(f"MSE Loss: {loss.item()}")
+            elif loss_type == "l1":
+                loss = F.l1_loss(noise, predicted_noise, reduction=reduction)
+                print(f"L1 Loss: {loss.item()}")
+            else:
+                raise NotImplementedError(f"Unknown loss type {loss_type}")
+                
+            return loss, x_noisy, noise
+            
+        # Monkey patch the p_losses method
+        import types
+        model.p_losses = types.MethodType(debug_p_losses, model)
         
         # Initialize weights with more stable initialization
         for name, param in model.named_parameters():
