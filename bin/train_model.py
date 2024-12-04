@@ -272,7 +272,7 @@ def main(config, log_dir):
         accelerator=accelerator,
         devices=devices,
         max_epochs=config["max_epochs"],
-        enable_progress_bar=True,
+        enable_progress_bar=False,
         num_sanity_val_steps=0,
         callbacks=callbacks,
         default_root_dir=log_dir,
