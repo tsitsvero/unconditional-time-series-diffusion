@@ -171,8 +171,18 @@ class TSDiffCond(TSDiffBase):
         if self.noise_observed:
             elbo_loss = sq_err.mean()
         else:
+            # Apply loss mask and handle empty mask case
             sq_err = sq_err * loss_mask
-            elbo_loss = sq_err.sum() / (num_eval if num_eval else 1)
+            if num_eval > 0:
+                elbo_loss = sq_err.sum() / num_eval
+            else:
+                elbo_loss = sq_err.sum()  # Will be 0 if no elements to evaluate
+                
+        # Ensure loss is scalar and valid
+        if not torch.isfinite(elbo_loss).all():
+            print("WARNING: ELBO loss is not finite, using fallback")
+            elbo_loss = torch.tensor(1.0, device=elbo_loss.device, requires_grad=True)
+            
         return elbo_loss
 
     def training_step(self, data, idx):

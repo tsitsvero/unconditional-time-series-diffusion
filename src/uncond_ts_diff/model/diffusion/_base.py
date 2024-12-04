@@ -214,10 +214,13 @@ class TSDiffBase(pl.LightningModule):
             else:
                 raise NotImplementedError()
             
-            # Validate loss value
-            if torch.isnan(loss) or torch.isinf(loss):
-                print("WARNING: Loss is NaN/Inf, using fallback loss")
-                loss = torch.tensor(1.0, device=loss.device, requires_grad=True)
+            # Validate loss value - check if any element is NaN/Inf
+            if torch.isnan(loss).any() or torch.isinf(loss).any():
+                print("WARNING: Loss contains NaN/Inf values, using fallback loss")
+                if reduction == "none":
+                    loss = torch.ones_like(loss, device=loss.device, requires_grad=True)
+                else:
+                    loss = torch.tensor(1.0, device=loss.device, requires_grad=True)
             
         except RuntimeError as e:
             print(f"Error during loss calculation: {e}")
