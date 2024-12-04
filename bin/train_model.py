@@ -250,32 +250,53 @@ def main(config, log_dir):
     sample_size = 5  # Number of time series to plot
     sample_data = list(training_data)[:sample_size]  # Get first 5 time series
 
-    plt.figure(figsize=(12, 8))
-    for idx, entry in enumerate(sample_data):
+    # Create figure with two subplots stacked vertically
+    fig, (ax_ts, ax_markers) = plt.subplots(2, 1, figsize=(12, 10), 
+                                          gridspec_kw={'height_ratios': [4, 1]},
+                                          sharex=True)
+    
+    # Color palette for different time series
+    colors = plt.cm.tab10(np.linspace(0, 1, sample_size))
+    
+    # Plot time series in upper subplot
+    for idx, (entry, color) in enumerate(zip(sample_data, colors)):
         target = entry['target']
-        # Get observed values mask if it exists, otherwise assume all values are observed
         observed = entry.get('observed_values', np.ones_like(target))
-        observed = observed.astype(bool)  # Convert to boolean type
+        observed = observed.astype(bool)
         
         # Plot the full time series
-        plt.plot(target, label=f'Time Series {idx+1}', alpha=0.5)
+        ax_ts.plot(target, color=color, alpha=0.3, label=f'Time Series {idx+1}')
         
         # Highlight observed values
         observed_target = np.where(observed, target, np.nan)
-        plt.plot(observed_target, label=f'TS {idx+1} (observed)', linewidth=2)
+        ax_ts.plot(observed_target, color=color, linewidth=2)
         
         # Mark missing values with red dots
-        missing_indices = np.where(~observed)[0]  # Now works with boolean array
-        if len(missing_indices) > 0:  # Only plot if there are missing values
+        missing_indices = np.where(~observed)[0]
+        if len(missing_indices) > 0:
             missing_values = target[missing_indices]
-            plt.scatter(missing_indices, missing_values, color='red', alpha=0.5, 
-                       label=f'TS {idx+1} (missing)' if idx == 0 else None)
-
-    plt.legend()
-    plt.title('Sample Time Series from Training Set\n(Red dots indicate missing values)')
-    plt.xlabel('Time')
-    plt.ylabel('Value')
-    plt.grid(True, alpha=0.3)
+            ax_ts.scatter(missing_indices, missing_values, color='red', alpha=0.5)
+            
+            # Add markers for missing values in lower subplot
+            ax_markers.scatter(missing_indices, [idx] * len(missing_indices), 
+                             marker='|', color=color, s=100, label=f'TS {idx+1} missing')
+    
+    # Customize upper subplot (time series)
+    ax_ts.set_title('Sample Time Series from Training Set\n(Red dots indicate missing values)')
+    ax_ts.set_ylabel('Value')
+    ax_ts.grid(True, alpha=0.3)
+    ax_ts.legend(loc='upper right')
+    
+    # Customize lower subplot (missing value markers)
+    ax_markers.set_xlabel('Time')
+    ax_markers.set_ylabel('Series')
+    ax_markers.set_yticks(range(sample_size))
+    ax_markers.set_yticklabels([f'TS {i+1}' for i in range(sample_size)])
+    ax_markers.set_title('Missing Value Locations')
+    ax_markers.grid(True, axis='x', alpha=0.3)
+    
+    # Adjust layout and save
+    plt.tight_layout()
     plot_path = os.path.join(log_dir, 'sample_time_series.png')
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     plt.close()
