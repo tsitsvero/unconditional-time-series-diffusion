@@ -48,7 +48,7 @@ def create_model(config):
     except AttributeError:
         raise ValueError(f"Could not find diffusion config '{config['diffusion_config']}' in configs")
 
-    # Setup model kwargs
+    # Setup model kwargs with improved numerical stability settings
     model_kwargs = {
         "freq": config["freq"],
         "use_features": config["use_features"],
@@ -56,7 +56,7 @@ def create_model(config):
         "normalization": config["normalization"],
         "context_length": config["context_length"],
         "prediction_length": config["prediction_length"],
-        "lr": config.get("lr", 1e-4),  # Default to a more stable learning rate
+        "lr": config.get("lr", 1e-5),  # Reduced learning rate for stability
         "init_skip": config["init_skip"],
     }
 
@@ -70,6 +70,10 @@ def create_model(config):
     
     try:
         model = model_cls(**model_kwargs)
+        # Initialize weights with a more stable method
+        for param in model.parameters():
+            if len(param.shape) > 1:
+                torch.nn.init.xavier_normal_(param, gain=0.5)
         model = model.to(device)
     except RuntimeError as e:
         print(f"Warning: Could not move model to {device}. Using CPU instead. Error: {e}")
@@ -356,10 +360,13 @@ def main(config, log_dir):
         num_sanity_val_steps=2,
         callbacks=callbacks,
         default_root_dir=log_dir,
-        gradient_clip_val=config.get("gradient_clip_val", 0.5),  # Reduced from 1.0
-        gradient_clip_algorithm="norm",  # Add gradient clipping by norm
-        accumulate_grad_batches=config.get("accumulate_grad_batches", 1),
+        gradient_clip_val=0.1,  # Reduced from 0.5 for better stability
+        gradient_clip_algorithm="norm",
+        accumulate_grad_batches=config.get("accumulate_grad_batches", 2),  # Increased for stability
         detect_anomaly=True,
+        precision=32,  # Use full precision for now
+        max_grad_norm=0.5,
+        track_grad_norm=2,
     )
     logger.info(f"Logging to {trainer.logger.log_dir}")
     trainer.fit(model, train_dataloaders=data_loader)
