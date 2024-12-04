@@ -530,7 +530,7 @@ def main(config, log_dir):
         callbacks=[
             pl.callbacks.LearningRateMonitor(logging_interval='step'),
             pl.callbacks.EarlyStopping(
-                monitor='train_loss',
+                monitor='train_loss_epoch',
                 patience=5,
                 mode='min',
                 min_delta=1e-4,
