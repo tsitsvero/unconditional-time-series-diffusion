@@ -8,7 +8,7 @@ import yaml
 import torch
 from tqdm.auto import tqdm
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, RichProgressBar
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from gluonts.dataset.loader import TrainDataLoader, ValidationDataLoader
 from gluonts.dataset.split import OffsetSplitter
@@ -210,7 +210,6 @@ def main(config, log_dir):
     )
 
     callbacks.append(checkpoint_callback)
-    callbacks.append(RichProgressBar())
 
     trainer = pl.Trainer(
         accelerator="gpu" if torch.cuda.is_available() else None,
