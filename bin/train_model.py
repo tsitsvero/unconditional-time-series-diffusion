@@ -365,7 +365,6 @@ def main(config, log_dir):
         accumulate_grad_batches=config.get("accumulate_grad_batches", 2),  # Increased for stability
         detect_anomaly=True,
         precision=32,  # Use full precision for now
-        track_grad_norm=2,
     )
     logger.info(f"Logging to {trainer.logger.log_dir}")
     trainer.fit(model, train_dataloaders=data_loader)
