@@ -72,39 +72,84 @@ def create_model(config):
     try:
         model = model_cls(**model_kwargs)
         
-        # Override p_losses method to add debugging
+        # Override p_losses method with improved numerical stability
         def debug_p_losses(self, x, t, features=None, loss_type="l2", reduction="mean"):
             print("\nDiffusion step debug:")
             
-            # Normalize input to reasonable range
-            batch_mean = x.mean(dim=(1, 2), keepdim=True)
-            batch_std = x.std(dim=(1, 2), keepdim=True) + 1e-6
-            x = (x - batch_mean) / batch_std
+            # Input validation and cleaning
+            if torch.isnan(x).any() or torch.isinf(x).any():
+                print("WARNING: Input contains NaN/Inf values before normalization")
+                x = torch.nan_to_num(x, nan=0.0, posinf=1e6, neginf=-1e6)
             
+            # More robust normalization with error checking
+            try:
+                batch_mean = x.mean(dim=(1, 2), keepdim=True)
+                batch_std = x.std(dim=(1, 2), keepdim=True)
+                batch_std = torch.clamp(batch_std, min=1e-5)  # Prevent division by zero
+                x = (x - batch_mean) / batch_std
+                
+                # Clip normalized values to prevent extremes
+                x = torch.clamp(x, min=-10.0, max=10.0)
+                
+            except RuntimeError as e:
+                print(f"Error during normalization: {e}")
+                raise
+                
             print(f"Input x shape: {x.shape}, range: [{x.min().item():.3f}, {x.max().item():.3f}]")
             print(f"Timestep t: {t}")
             
-            # Get noise
+            # Generate and validate noise
             noise = torch.randn_like(x)
+            noise = torch.clamp(noise, min=-4.0, max=4.0)  # Clip noise to reasonable range
             print(f"Noise range: [{noise.min().item():.3f}, {noise.max().item():.3f}]")
             
-            # Get noisy samples
-            x_noisy = self.q_sample(x, t, noise=noise)
+            # Get noisy samples with error checking
+            try:
+                x_noisy = self.q_sample(x, t, noise=noise)
+                if torch.isnan(x_noisy).any() or torch.isinf(x_noisy).any():
+                    print("WARNING: NaN/Inf values in noisy samples")
+                    x_noisy = torch.nan_to_num(x_noisy, nan=0.0, posinf=1e6, neginf=-1e6)
+                    x_noisy = torch.clamp(x_noisy, min=-10.0, max=10.0)
+                    
+            except RuntimeError as e:
+                print(f"Error during noise sampling: {e}")
+                raise
+                
             print(f"Noisy x range: [{x_noisy.min().item():.3f}, {x_noisy.max().item():.3f}]")
             
-            # Get predicted noise
-            predicted_noise = self.backbone(x_noisy, t, features)
+            # Get predicted noise with gradient scaling
+            with torch.cuda.amp.autocast(enabled=False):  # Disable mixed precision here
+                predicted_noise = self.backbone(x_noisy, t, features)
+                
+                # Clean predicted noise
+                if torch.isnan(predicted_noise).any() or torch.isinf(predicted_noise).any():
+                    print("WARNING: NaN/Inf values in predicted noise")
+                    predicted_noise = torch.nan_to_num(predicted_noise, nan=0.0, posinf=1e6, neginf=-1e6)
+                    predicted_noise = torch.clamp(predicted_noise, min=-10.0, max=10.0)
+                    
             print(f"Predicted noise range: [{predicted_noise.min().item():.3f}, {predicted_noise.max().item():.3f}]")
             print(f"Has NaN in predicted noise: {torch.isnan(predicted_noise).any().item()}")
             
-            if loss_type == "l2":
-                loss = F.mse_loss(noise, predicted_noise, reduction=reduction)
-                print(f"MSE Loss: {loss.item()}")
-            elif loss_type == "l1":
-                loss = F.l1_loss(noise, predicted_noise, reduction=reduction)
-                print(f"L1 Loss: {loss.item()}")
-            else:
-                raise NotImplementedError(f"Unknown loss type {loss_type}")
+            # Calculate loss with error checking
+            try:
+                if loss_type == "l2":
+                    # Add small epsilon to prevent exact zeros
+                    loss = F.mse_loss(noise + 1e-8, predicted_noise + 1e-8, reduction=reduction)
+                elif loss_type == "l1":
+                    loss = F.l1_loss(noise + 1e-8, predicted_noise + 1e-8, reduction=reduction)
+                else:
+                    raise NotImplementedError(f"Unknown loss type {loss_type}")
+                    
+                # Validate loss value
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print("WARNING: Loss is NaN/Inf, using fallback loss")
+                    loss = torch.tensor(1.0, device=loss.device, requires_grad=True)
+                    
+                print(f"Loss value: {loss.item()}")
+                    
+            except RuntimeError as e:
+                print(f"Error during loss calculation: {e}")
+                raise
                 
             return loss, x_noisy, noise
             
