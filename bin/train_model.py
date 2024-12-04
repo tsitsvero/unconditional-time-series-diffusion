@@ -385,14 +385,12 @@ def main(config, log_dir):
         enable_progress_bar=True,
         num_sanity_val_steps=2,
         default_root_dir=log_dir,
-        gradient_clip_val=0.5,  # Reduced for better stability
-        gradient_clip_algorithm="norm",
-        accumulate_grad_batches=4,  # Fixed accumulation instead of scheduling
+        accumulate_grad_batches=4,
         detect_anomaly=True,
-        precision=32,  # Use full precision for debugging
+        precision="32-true",
         callbacks=[
             pl.callbacks.LearningRateMonitor(logging_interval='step'),
-            *callbacks  # Unpack the existing callbacks list
+            *callbacks
         ]
     )
 
@@ -414,22 +412,67 @@ def main(config, log_dir):
             }
         ]
 
-    # Add debug prints for input data
+    # Add more detailed debug prints for input data
     for batch in data_loader:
-        print("Batch statistics:")
+        print("\nDetailed Batch Statistics:")
         for key, value in batch.items():
             if torch.is_tensor(value):
+                if torch.isnan(value).any():
+                    print(f"WARNING: NaN values found in {key}")
+                if torch.isinf(value).any():
+                    print(f"WARNING: Inf values found in {key}")
+                
                 # Convert to float for statistics if needed
                 if value.dtype in [torch.long, torch.int32, torch.int64]:
                     value_float = value.float()
-                    print(f"{key}: shape={value.shape}, dtype={value.dtype}, "
-                          f"range=[{value.min()}, {value.max()}], "
-                          f"mean={value_float.mean():.3f}, std={value_float.std():.3f}")
                 else:
-                    print(f"{key}: shape={value.shape}, dtype={value.dtype}, "
-                          f"range=[{value.min():.3f}, {value.max():.3f}], "
-                          f"mean={value.mean():.3f}, std={value.std():.3f}")
+                    value_float = value
+                
+                stats = {
+                    "shape": value.shape,
+                    "dtype": value.dtype,
+                    "min": value_float.min().item(),
+                    "max": value_float.max().item(),
+                    "mean": value_float.mean().item(),
+                    "std": value_float.std().item(),
+                    "has_nan": torch.isnan(value_float).any().item(),
+                    "has_inf": torch.isinf(value_float).any().item()
+                }
+                print(f"{key}:")
+                for stat_name, stat_value in stats.items():
+                    print(f"  {stat_name}: {stat_value}")
         break
+
+    # Add a hook to monitor for NaN/Inf gradients
+    def hook_fn(grad):
+        if torch.isnan(grad).any():
+            print("NaN gradient detected!")
+            return torch.zeros_like(grad)
+        if torch.isinf(grad).any():
+            print("Inf gradient detected!")
+            return torch.clip(grad, -1e6, 1e6)
+        return grad
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param.register_hook(lambda grad, name=name: hook_fn(grad))
+
+    # Verify model parameters before training
+    print("\nModel Parameter Statistics:")
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            stats = {
+                "shape": param.shape,
+                "min": param.data.min().item(),
+                "max": param.data.max().item(),
+                "mean": param.data.mean().item(),
+                "std": param.data.std().item(),
+                "has_nan": torch.isnan(param).any().item(),
+                "has_inf": torch.isinf(param).any().item()
+            }
+            print(f"{name}:")
+            for stat_name, stat_value in stats.items():
+                print(f"  {stat_name}: {stat_value}")
 
     logger.info(f"Logging to {trainer.logger.log_dir}")
     trainer.fit(model, train_dataloaders=data_loader)
