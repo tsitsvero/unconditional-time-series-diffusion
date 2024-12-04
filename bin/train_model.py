@@ -357,7 +357,7 @@ def main(config, log_dir):
         callbacks=callbacks,
         default_root_dir=log_dir,
         gradient_clip_val=config.get("gradient_clip_val", 1.0),
-        accumulate_grad_batches=config["accumulate_grad_batches"],
+        accumulate_grad_batches=config.get("accumulate_grad_batches", 1),
         detect_anomaly=True,
     )
     logger.info(f"Logging to {trainer.logger.log_dir}")
