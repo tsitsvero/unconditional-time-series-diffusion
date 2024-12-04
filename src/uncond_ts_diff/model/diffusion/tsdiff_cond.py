@@ -159,7 +159,7 @@ class TSDiffCond(TSDiffBase):
         assert self.training is True
         device = next(self.parameters()).device
 
-        x, _, features = self._extract_features(data)
+        x, scale, features = self._extract_features(data)
 
         # Last dim of features has the observation mask
         observation_mask = features[..., -1:]
@@ -177,7 +177,7 @@ class TSDiffCond(TSDiffBase):
     def validation_step(self, data, idx):
         device = next(self.parameters()).device
 
-        x, _, features = self._extract_features(data)
+        x, scale, features = self._extract_features(data)
 
         # Last dim of features has the observation mask
         observation_mask = features[..., -1:]
