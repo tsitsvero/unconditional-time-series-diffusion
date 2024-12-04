@@ -42,7 +42,7 @@ def create_model(config):
     try:
         model_config = getattr(diffusion_configs, config["diffusion_config"])
         if isinstance(model_config, dict):
-            model_cls = TSDiff  # Use TSDiff as the base model class
+            model_cls = TSDiff
         else:
             model_cls = model_config
     except AttributeError:
@@ -56,7 +56,7 @@ def create_model(config):
         "normalization": config["normalization"],
         "context_length": config["context_length"],
         "prediction_length": config["prediction_length"],
-        "lr": config.get("lr", 1e-4),  # Increased learning rate slightly
+        "lr": config.get("lr", 1e-4),
         "init_skip": config["init_skip"],
     }
 
@@ -70,19 +70,43 @@ def create_model(config):
     
     try:
         model = model_cls(**model_kwargs)
-        # Initialize weights with a more conservative method
-        for param in model.parameters():
-            if len(param.shape) > 1:
-                torch.nn.init.xavier_uniform_(param, gain=0.1)  # Reduced gain
-            else:
-                torch.nn.init.zeros_(param)  # Initialize biases to zero
+        
+        # Initialize weights with more stable initialization
+        for name, param in model.named_parameters():
+            if 'weight' in name:
+                if len(param.shape) > 1:
+                    # Use Kaiming initialization for weights
+                    torch.nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+                else:
+                    # Initialize 1D weights (vectors) carefully
+                    torch.nn.init.uniform_(param, -0.01, 0.01)
+            elif 'bias' in name:
+                torch.nn.init.zeros_(param)
                 
-        # Add gradient clipping at parameter level
+        # Add gradient and parameter value clipping
         for param in model.parameters():
             if param.requires_grad:
-                param.register_hook(lambda grad: torch.nan_to_num_(grad, nan=0.0, posinf=1.0, neginf=-1.0))
+                # Clip parameter values to prevent extreme initializations
+                with torch.no_grad():
+                    param.clamp_(-1.0, 1.0)
+                # Add hook for gradient clipping during training
+                param.register_hook(
+                    lambda grad: torch.nan_to_num(
+                        grad.clamp(-1.0, 1.0),
+                        nan=0.0,
+                        posinf=1.0,
+                        neginf=-1.0
+                    )
+                )
                 
         model = model.to(device)
+        
+        # Verify no NaN values in initial parameters
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if torch.isnan(param).any():
+                    raise ValueError(f"NaN values found in parameter {name} after initialization")
+                
     except Exception as e:
         raise RuntimeError(f"Failed to create model: {str(e)}")
     
@@ -387,30 +411,44 @@ def main(config, log_dir):
         default_root_dir=log_dir,
         accumulate_grad_batches=4,
         detect_anomaly=True,
-        precision="32-true",
+        precision="32-true",  # Use true float32 precision
         callbacks=[
             pl.callbacks.LearningRateMonitor(logging_interval='step'),
+            pl.callbacks.EarlyStopping(
+                monitor='train_loss',
+                patience=5,
+                mode='min',
+                min_delta=1e-4,
+                verbose=True
+            ),
             *callbacks
         ]
     )
 
-    # Add learning rate scheduler
-    for optimizer in trainer.optimizers:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode='min',
-            factor=0.5,
-            patience=5,
-            verbose=True
-        )
-        trainer.lr_schedulers = [
-            {
-                'scheduler': scheduler,
-                'monitor': 'train_loss',
-                'interval': 'epoch',
-                'frequency': 1
-            }
-        ]
+    # Add learning rate scheduler with warmup
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=1e-6,  # Start with very small learning rate
+        weight_decay=0.01,
+        eps=1e-8,  # Increased epsilon for better numerical stability
+    )
+    
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=config.get("lr", 1e-4),
+        total_steps=config["max_epochs"] * config["num_batches_per_epoch"],
+        pct_start=0.1,  # 10% warmup
+        div_factor=25.0,  # Initial lr = max_lr/25
+        final_div_factor=1000.0,  # Final lr = max_lr/1000
+    )
+    
+    trainer.lr_schedulers = [
+        {
+            'scheduler': scheduler,
+            'interval': 'step',
+            'frequency': 1
+        }
+    ]
 
     # Add more detailed debug prints for input data
     for batch in data_loader:
