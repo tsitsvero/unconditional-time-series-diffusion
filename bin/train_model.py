@@ -554,14 +554,13 @@ def main(config, log_dir):
         factor=0.5,
         patience=3,
         verbose=True,
-        min_lr=1e-8,
-        monitor='train_loss'  # Changed from train_loss_epoch to train_loss
+        min_lr=1e-8
     )
     
     trainer.lr_schedulers = [
         {
             'scheduler': scheduler,
-            'monitor': 'train_loss',  # Add monitor key to match available metric
+            'monitor': 'train_loss',
             'interval': 'epoch',
             'frequency': 1
         }
