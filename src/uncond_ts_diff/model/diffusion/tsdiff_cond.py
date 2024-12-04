@@ -77,7 +77,20 @@ class TSDiffCond(TSDiffBase):
         context_observed = data["past_observed_values"][
             :, -self.context_length :
         ]
-        scaled_context, scale = self.scaler(context, context_observed)
+        
+        # Convert tensors to same device
+        context = context.to(device)
+        context_observed = context_observed.to(device)
+        
+        # Handle scaler output
+        scaler_output = self.scaler(context, context_observed)
+        if isinstance(scaler_output, tuple):
+            scaled_context, scale = scaler_output
+        else:
+            # If scaler returns a single value, use it as both scaled data and scale
+            scaled_context = scaler_output
+            scale = torch.ones_like(context)
+            
         features = []
 
         scaled_prior = prior / scale
