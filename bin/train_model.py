@@ -58,7 +58,6 @@ def create_model(config):
         "prediction_length": config["prediction_length"],
         "lr": config.get("lr", 1e-4),  # Default to a more stable learning rate
         "init_skip": config["init_skip"],
-        "eps": 1e-8,  # Add epsilon for numerical stability
     }
 
     # If model_config is a dict, add it to model_kwargs
