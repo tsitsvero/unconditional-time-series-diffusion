@@ -199,6 +199,10 @@ class TSDiffCond(TSDiffBase):
             0, self.timesteps, (x.shape[0],), device=device
         ).long()
         elbo_loss = self.step(x, t, features, loss_mask)
+        
+        # Log the loss for the scheduler
+        self.log("train_loss", elbo_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        
         return {
             "loss": elbo_loss,
             "elbo_loss": elbo_loss,
@@ -219,6 +223,9 @@ class TSDiffCond(TSDiffBase):
             val_loss += self.step(x, t, features, loss_mask)
 
         val_loss /= self.timesteps
+        
+        # Log validation loss
+        self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         return {
             "loss": val_loss,
