@@ -83,12 +83,19 @@ class TSDiffCond(TSDiffBase):
         context_observed = context_observed.to(device)
         
         # Handle scaler output
-        scaler_output = self.scaler(context, context_observed)
-        if isinstance(scaler_output, tuple):
-            scaled_context, scale = scaler_output
-        else:
-            # If scaler returns a single value, use it as both scaled data and scale
-            scaled_context = scaler_output
+        try:
+            scaler_output = self.scaler(context, context_observed)
+            if isinstance(scaler_output, (list, tuple)):
+                # If it's a sequence, take first two elements
+                scaled_context = scaler_output[0]
+                scale = scaler_output[1] if len(scaler_output) > 1 else torch.ones_like(context)
+            else:
+                # If it's a single value, use it as scaled data
+                scaled_context = scaler_output
+                scale = torch.ones_like(context)
+        except Exception as e:
+            print(f"Warning: Scaler error ({str(e)}), using fallback scaling")
+            scaled_context = context
             scale = torch.ones_like(context)
             
         features = []
