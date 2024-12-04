@@ -540,27 +540,24 @@ def main(config, log_dir):
         ]
     )
 
-    # Add learning rate scheduler with warmup
+    # Replace the scheduler configuration with StepLR
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=1e-6,  # Start with very small learning rate
+        lr=config.get("lr", 1e-4),  # Use config lr or default to 1e-4
         weight_decay=0.01,
-        eps=1e-8,  # Increased epsilon for better numerical stability
+        eps=1e-8,
     )
     
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
-        mode='min',
-        factor=0.5,
-        patience=3,
-        verbose=True,
-        min_lr=1e-8
+        step_size=10,  # Reduce LR every 10 epochs
+        gamma=0.5,     # Multiply LR by 0.5
+        verbose=True
     )
     
     trainer.lr_schedulers = [
         {
             'scheduler': scheduler,
-            'monitor': 'train_loss',
             'interval': 'epoch',
             'frequency': 1
         }
