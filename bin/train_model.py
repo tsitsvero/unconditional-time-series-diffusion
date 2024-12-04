@@ -171,7 +171,7 @@ def create_model(config):
             
         # Monkey patch the p_losses method
         import types
-        model.p_losses = types.MethodType(debug_p_losses, model)
+        # model.p_losses = types.MethodType(debug_p_losses, model)
         
         # Initialize weights with more stable initialization
         for name, param in model.named_parameters():

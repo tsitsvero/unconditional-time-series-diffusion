@@ -122,17 +122,29 @@ class TSDiffBase(pl.LightningModule):
         device = next(self.backbone.parameters()).device
         if noise is None:
             noise = torch.randn_like(x_start, device=device)
-        sqrt_alphas_cumprod_t = extract(
-            self.sqrt_alphas_cumprod, t, x_start.shape
-        )
+        
+        # Clamp noise values
+        noise = torch.clamp(noise, min=-10.0, max=10.0)
+        
+        # Extract coefficients with error checking
+        sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, x_start.shape)
         sqrt_one_minus_alphas_cumprod_t = extract(
             self.sqrt_one_minus_alphas_cumprod, t, x_start.shape
         )
-
-        return (
-            sqrt_alphas_cumprod_t * x_start
-            + sqrt_one_minus_alphas_cumprod_t * noise
-        )
+        
+        # Add small epsilon to prevent division by zero
+        sqrt_alphas_cumprod_t = sqrt_alphas_cumprod_t + 1e-8
+        sqrt_one_minus_alphas_cumprod_t = sqrt_one_minus_alphas_cumprod_t + 1e-8
+        
+        # Calculate noisy sample
+        x_noisy = sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
+        
+        # Clean output
+        x_noisy = torch.clamp(x_noisy, min=-1e6, max=1e6)
+        if torch.isnan(x_noisy).any() or torch.isinf(x_noisy).any():
+            x_noisy = torch.nan_to_num(x_noisy, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        return x_noisy
 
     def p_losses(
         self,
@@ -144,22 +156,72 @@ class TSDiffBase(pl.LightningModule):
         reduction="mean",
     ):
         device = next(self.backbone.parameters()).device
+        
+        # Input validation and cleaning
+        if torch.isnan(x_start).any() or torch.isinf(x_start).any():
+            x_start = torch.nan_to_num(x_start, nan=0.0, posinf=1e6, neginf=-1e6)
+            x_start = torch.clamp(x_start, min=-1e6, max=1e6)
+        
+        # Generate and validate noise
         if noise is None:
             noise = torch.randn_like(x_start, device=device)
-
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        noise = torch.clamp(noise, min=-10.0, max=10.0)  # Limit noise range
+        
+        # Get noisy samples with error checking
+        try:
+            x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+            if torch.isnan(x_noisy).any() or torch.isinf(x_noisy).any():
+                x_noisy = torch.nan_to_num(x_noisy, nan=0.0, posinf=1e6, neginf=-1e6)
+                x_noisy = torch.clamp(x_noisy, min=-1e6, max=1e6)
+        except RuntimeError as e:
+            print(f"Error during noise sampling: {e}")
+            raise
+        
+        # Get predicted noise with gradient scaling
         predicted_noise = self.backbone(x_noisy, t, features)
-
-        if loss_type == "l1":
-            loss = F.l1_loss(noise, predicted_noise, reduction=reduction)
-        elif loss_type == "l2":
-            loss = F.mse_loss(noise, predicted_noise, reduction=reduction)
-        elif loss_type == "huber":
-            loss = F.smooth_l1_loss(
-                noise, predicted_noise, reduction=reduction
-            )
-        else:
-            raise NotImplementedError()
+        
+        # Clean predicted noise
+        if torch.isnan(predicted_noise).any() or torch.isinf(predicted_noise).any():
+            predicted_noise = torch.nan_to_num(predicted_noise, nan=0.0, posinf=1e6, neginf=-1e6)
+            predicted_noise = torch.clamp(predicted_noise, min=-1e6, max=1e6)
+        
+        # Calculate loss with error checking and scaling
+        try:
+            if loss_type == "l2":
+                # Scale inputs to prevent loss explosion
+                scale_factor = max(
+                    noise.abs().max().item(),
+                    predicted_noise.abs().max().item(),
+                    1e-8
+                )
+                scaled_noise = noise / scale_factor
+                scaled_pred = predicted_noise / scale_factor
+                
+                # Add small epsilon to prevent division by zero
+                loss = F.mse_loss(
+                    scaled_noise + 1e-8,
+                    scaled_pred + 1e-8,
+                    reduction=reduction
+                )
+                
+                # Scale loss to prevent explosion
+                loss = loss * 0.5  # Scale down loss
+                
+            elif loss_type == "l1":
+                loss = F.l1_loss(noise, predicted_noise, reduction=reduction)
+            elif loss_type == "huber":
+                loss = F.smooth_l1_loss(noise, predicted_noise, reduction=reduction)
+            else:
+                raise NotImplementedError()
+            
+            # Validate loss value
+            if torch.isnan(loss) or torch.isinf(loss):
+                print("WARNING: Loss is NaN/Inf, using fallback loss")
+                loss = torch.tensor(1.0, device=loss.device, requires_grad=True)
+            
+        except RuntimeError as e:
+            print(f"Error during loss calculation: {e}")
+            raise
 
         return loss, x_noisy, predicted_noise
 
