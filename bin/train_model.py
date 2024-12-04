@@ -56,8 +56,9 @@ def create_model(config):
         "normalization": config["normalization"],
         "context_length": config["context_length"],
         "prediction_length": config["prediction_length"],
-        "lr": config.get("lr", 1e-5),  # Reduced learning rate for stability
+        "lr": config.get("lr", 1e-4),  # Increased learning rate slightly
         "init_skip": config["init_skip"],
+        "gradient_clip_val": config.get("gradient_clip_val", 0.5),  # Add gradient clipping
     }
 
     # If model_config is a dict, add it to model_kwargs
@@ -70,15 +71,19 @@ def create_model(config):
     
     try:
         model = model_cls(**model_kwargs)
-        # Initialize weights with a more stable method
+        # Initialize weights with a more conservative method
         for param in model.parameters():
             if len(param.shape) > 1:
-                torch.nn.init.xavier_normal_(param, gain=0.5)
+                torch.nn.init.xavier_uniform_(param, gain=0.1)  # Reduced gain
+            else:
+                torch.nn.init.zeros_(param)  # Initialize biases to zero
+                
+        # Add gradient clipping at parameter level
+        for param in model.parameters():
+            if param.requires_grad:
+                param.register_hook(lambda grad: torch.nan_to_num_(grad, nan=0.0, posinf=1.0, neginf=-1.0))
+                
         model = model.to(device)
-    except RuntimeError as e:
-        print(f"Warning: Could not move model to {device}. Using CPU instead. Error: {e}")
-        config["device"] = torch.device("cpu")
-        model = model_cls(**model_kwargs).to("cpu")
     except Exception as e:
         raise RuntimeError(f"Failed to create model: {str(e)}")
     
@@ -156,6 +161,12 @@ def evaluate_guidance(
     return results
 
 
+def normalize_data(data, eps=1e-8):
+    mean = data.mean()
+    std = data.std() + eps
+    return (data - mean) / std, mean, std
+
+
 def main(config, log_dir):
     # Load parameters
     dataset_name = config["dataset"]
@@ -214,6 +225,14 @@ def main(config, log_dir):
     callbacks = []
     if config["use_validation_set"]:
         transformed_data = transformation.apply(training_data, is_train=True)
+        if config.get("normalize_data", True):
+            normalized_data = []
+            for item in transformed_data:
+                if "target" in item:
+                    item["target"], mean, std = normalize_data(item["target"])
+                    item["normalization_params"] = {"mean": mean, "std": std}
+                normalized_data.append(item)
+            transformed_data = normalized_data
         train_val_splitter = OffsetSplitter(
             offset=-config["prediction_length"] * num_rolling_evals
         )
@@ -238,6 +257,14 @@ def main(config, log_dir):
         ]
     else:
         transformed_data = transformation.apply(training_data, is_train=True)
+        if config.get("normalize_data", True):
+            normalized_data = []
+            for item in transformed_data:
+                if "target" in item:
+                    item["target"], mean, std = normalize_data(item["target"])
+                    item["normalization_params"] = {"mean": mean, "std": std}
+                normalized_data.append(item)
+            transformed_data = normalized_data
 
     log_monitor = "train_loss"
     filename = dataset_name + "-{epoch:03d}-{train_loss:.3f}"
@@ -360,12 +387,45 @@ def main(config, log_dir):
         num_sanity_val_steps=2,
         callbacks=callbacks,
         default_root_dir=log_dir,
-        gradient_clip_val=0.1,  # Reduced for better stability
+        gradient_clip_val=0.5,  # Reduced for better stability
         gradient_clip_algorithm="norm",
-        accumulate_grad_batches=config.get("accumulate_grad_batches", 2),  # Increased for stability
+        accumulate_grad_batches=config.get("accumulate_grad_batches", 4),  # Increased for stability
         detect_anomaly=True,
-        precision=32,  # Use full precision for now
+        precision=32,  # Use full precision for debugging
+        # Add learning rate warm-up
+        callbacks=[
+            pl.callbacks.LearningRateMonitor(logging_interval='step'),
+            pl.callbacks.GradientAccumulationScheduler(scheduling={0: 4, 1000: 2}),
+        ] + callbacks,
     )
+
+    # Add learning rate scheduler
+    for optimizer in trainer.optimizers:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode='min',
+            factor=0.5,
+            patience=5,
+            verbose=True
+        )
+        trainer.lr_schedulers = [
+            {
+                'scheduler': scheduler,
+                'monitor': 'train_loss',
+                'interval': 'epoch',
+                'frequency': 1
+            }
+        ]
+
+    # Add debug prints for input data
+    for batch in data_loader:
+        print("Batch statistics:")
+        for key, value in batch.items():
+            if torch.is_tensor(value):
+                print(f"{key}: shape={value.shape}, range=[{value.min():.3f}, {value.max():.3f}], "
+                      f"mean={value.mean():.3f}, std={value.std():.3f}")
+        break
+
     logger.info(f"Logging to {trainer.logger.log_dir}")
     trainer.fit(model, train_dataloaders=data_loader)
     logger.info("Training completed.")
