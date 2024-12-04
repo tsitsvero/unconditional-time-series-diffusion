@@ -548,19 +548,21 @@ def main(config, log_dir):
         eps=1e-8,  # Increased epsilon for better numerical stability
     )
     
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
-        max_lr=config.get("lr", 1e-4),
-        total_steps=config["max_epochs"] * config["num_batches_per_epoch"],
-        pct_start=0.1,  # 10% warmup
-        div_factor=25.0,  # Initial lr = max_lr/25
-        final_div_factor=1000.0,  # Final lr = max_lr/1000
+        mode='min',
+        factor=0.5,
+        patience=3,
+        verbose=True,
+        min_lr=1e-8,
+        monitor='train_loss'  # Changed from train_loss_epoch to train_loss
     )
     
     trainer.lr_schedulers = [
         {
             'scheduler': scheduler,
-            'interval': 'step',
+            'monitor': 'train_loss',  # Add monitor key to match available metric
+            'interval': 'epoch',
             'frequency': 1
         }
     ]
