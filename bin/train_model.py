@@ -353,10 +353,12 @@ def main(config, log_dir):
         devices=devices,
         max_epochs=config["max_epochs"],
         enable_progress_bar=True,
-        num_sanity_val_steps=0,
+        num_sanity_val_steps=2,
         callbacks=callbacks,
         default_root_dir=log_dir,
-        gradient_clip_val=config.get("gradient_clip_val", None),
+        gradient_clip_val=config.get("gradient_clip_val", 1.0),
+        accumulate_grad_batches=config["accumulate_grad_batches"],
+        detect_anomaly=True,
     )
     logger.info(f"Logging to {trainer.logger.log_dir}")
     trainer.fit(model, train_dataloaders=data_loader)
