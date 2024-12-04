@@ -385,18 +385,17 @@ def main(config, log_dir):
         max_epochs=config["max_epochs"],
         enable_progress_bar=True,
         num_sanity_val_steps=2,
-        callbacks=callbacks,
         default_root_dir=log_dir,
         gradient_clip_val=0.5,  # Reduced for better stability
         gradient_clip_algorithm="norm",
         accumulate_grad_batches=config.get("accumulate_grad_batches", 4),  # Increased for stability
         detect_anomaly=True,
         precision=32,  # Use full precision for debugging
-        # Add learning rate warm-up
         callbacks=[
             pl.callbacks.LearningRateMonitor(logging_interval='step'),
             pl.callbacks.GradientAccumulationScheduler(scheduling={0: 4, 1000: 2}),
-        ] + callbacks,
+            *callbacks  # Unpack the existing callbacks list
+        ]
     )
 
     # Add learning rate scheduler
