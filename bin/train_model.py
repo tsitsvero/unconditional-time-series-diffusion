@@ -56,8 +56,9 @@ def create_model(config):
         "normalization": config["normalization"],
         "context_length": config["context_length"],
         "prediction_length": config["prediction_length"],
-        "lr": config["lr"],
+        "lr": config.get("lr", 1e-4),  # Default to a more stable learning rate
         "init_skip": config["init_skip"],
+        "eps": 1e-8,  # Add epsilon for numerical stability
     }
 
     # If model_config is a dict, add it to model_kwargs
@@ -356,7 +357,8 @@ def main(config, log_dir):
         num_sanity_val_steps=2,
         callbacks=callbacks,
         default_root_dir=log_dir,
-        gradient_clip_val=config.get("gradient_clip_val", 1.0),
+        gradient_clip_val=config.get("gradient_clip_val", 0.5),  # Reduced from 1.0
+        gradient_clip_algorithm="norm",  # Add gradient clipping by norm
         accumulate_grad_batches=config.get("accumulate_grad_batches", 1),
         detect_anomaly=True,
     )
