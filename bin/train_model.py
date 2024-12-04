@@ -76,9 +76,10 @@ def create_model(config):
         def debug_p_losses(self, x, t, features=None, loss_type="l2", reduction="mean"):
             print("\nDiffusion step debug:")
             
-            # Clip input to prevent infinities
-            x = torch.nan_to_num(x, nan=0.0, posinf=1e6, neginf=-1e6)
-            x = torch.clamp(x, min=-1e6, max=1e6)
+            # Normalize input to reasonable range
+            batch_mean = x.mean(dim=(1, 2), keepdim=True)
+            batch_std = x.std(dim=(1, 2), keepdim=True) + 1e-6
+            x = (x - batch_mean) / batch_std
             
             print(f"Input x shape: {x.shape}, range: [{x.min().item():.3f}, {x.max().item():.3f}]")
             print(f"Timestep t: {t}")
@@ -89,24 +90,17 @@ def create_model(config):
             
             # Get noisy samples
             x_noisy = self.q_sample(x, t, noise=noise)
-            x_noisy = torch.nan_to_num(x_noisy, nan=0.0, posinf=1e6, neginf=-1e6)
-            x_noisy = torch.clamp(x_noisy, min=-1e6, max=1e6)
             print(f"Noisy x range: [{x_noisy.min().item():.3f}, {x_noisy.max().item():.3f}]")
             
-            # Get predicted noise - using backbone instead of denoise_fn
+            # Get predicted noise
             predicted_noise = self.backbone(x_noisy, t, features)
-            predicted_noise = torch.nan_to_num(predicted_noise, nan=0.0, posinf=1.0, neginf=-1.0)
-            predicted_noise = torch.clamp(predicted_noise, min=-5.0, max=5.0)  # Clip to reasonable noise range
             print(f"Predicted noise range: [{predicted_noise.min().item():.3f}, {predicted_noise.max().item():.3f}]")
             print(f"Has NaN in predicted noise: {torch.isnan(predicted_noise).any().item()}")
             
             if loss_type == "l2":
-                # Clip noise for stable loss computation
-                noise = torch.clamp(noise, min=-5.0, max=5.0)
                 loss = F.mse_loss(noise, predicted_noise, reduction=reduction)
                 print(f"MSE Loss: {loss.item()}")
             elif loss_type == "l1":
-                noise = torch.clamp(noise, min=-5.0, max=5.0)
                 loss = F.l1_loss(noise, predicted_noise, reduction=reduction)
                 print(f"L1 Loss: {loss.item()}")
             else:
