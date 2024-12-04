@@ -387,14 +387,11 @@ def main(config, log_dir):
         default_root_dir=log_dir,
         gradient_clip_val=0.5,  # Reduced for better stability
         gradient_clip_algorithm="norm",
+        accumulate_grad_batches=4,  # Fixed accumulation instead of scheduling
         detect_anomaly=True,
         precision=32,  # Use full precision for debugging
         callbacks=[
             pl.callbacks.LearningRateMonitor(logging_interval='step'),
-            pl.callbacks.GradientAccumulationScheduler(scheduling={
-                0: 4,    # Start with accumulating 4 batches
-                1000: 2  # After 1000 steps, switch to accumulating 2 batches
-            }),
             *callbacks  # Unpack the existing callbacks list
         ]
     )
