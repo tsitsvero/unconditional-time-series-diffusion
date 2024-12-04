@@ -58,7 +58,6 @@ def create_model(config):
         "prediction_length": config["prediction_length"],
         "lr": config.get("lr", 1e-4),  # Increased learning rate slightly
         "init_skip": config["init_skip"],
-        "gradient_clip_val": config.get("gradient_clip_val", 0.5),  # Add gradient clipping
     }
 
     # If model_config is a dict, add it to model_kwargs
