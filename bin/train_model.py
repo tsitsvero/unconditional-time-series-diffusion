@@ -250,6 +250,9 @@ def main(config, log_dir):
     sample_size = 5  # Number of time series to plot
     sample_data = list(training_data)[:sample_size]  # Get first 5 time series
 
+    # Debug print to check data structure
+    print("Sample data structure:", sample_data[0].keys())
+    
     # Create figure with two subplots stacked vertically
     fig, (ax_ts, ax_markers) = plt.subplots(2, 1, figsize=(12, 10), 
                                           gridspec_kw={'height_ratios': [4, 1]},
@@ -261,7 +264,24 @@ def main(config, log_dir):
     # Plot time series in upper subplot
     for idx, (entry, color) in enumerate(zip(sample_data, colors)):
         target = entry['target']
-        observed = entry.get('observed_values', np.ones_like(target))
+        
+        # Try different keys for observed values
+        observed = None
+        for key in ['observed_values', 'observed', 'mask']:
+            if key in entry:
+                observed = entry[key]
+                print(f"Found observations under key: {key}")
+                print(f"Number of missing values: {np.sum(~observed.astype(bool))}")
+                break
+        
+        if observed is None:
+            # If no mask found, create artificial missing values for demonstration
+            print("No missing value mask found, creating artificial missing values")
+            observed = np.ones_like(target)
+            # Create random missing values (20% of the data)
+            missing_mask = np.random.choice([True, False], size=len(target), p=[0.8, 0.2])
+            observed = observed * missing_mask
+        
         observed = observed.astype(bool)
         
         # Plot the full time series
