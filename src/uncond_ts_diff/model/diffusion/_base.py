@@ -111,7 +111,7 @@ class TSDiffBase(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "train_loss_epoch",  # Lightning automatically adds _epoch suffix for on_epoch=True
+                "monitor": "train_loss",
                 "frequency": 1
             }
         }
