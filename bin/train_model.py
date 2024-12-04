@@ -420,8 +420,16 @@ def main(config, log_dir):
         print("Batch statistics:")
         for key, value in batch.items():
             if torch.is_tensor(value):
-                print(f"{key}: shape={value.shape}, range=[{value.min():.3f}, {value.max():.3f}], "
-                      f"mean={value.mean():.3f}, std={value.std():.3f}")
+                # Convert to float for statistics if needed
+                if value.dtype in [torch.long, torch.int32, torch.int64]:
+                    value_float = value.float()
+                    print(f"{key}: shape={value.shape}, dtype={value.dtype}, "
+                          f"range=[{value.min()}, {value.max()}], "
+                          f"mean={value_float.mean():.3f}, std={value_float.std():.3f}")
+                else:
+                    print(f"{key}: shape={value.shape}, dtype={value.dtype}, "
+                          f"range=[{value.min():.3f}, {value.max():.3f}], "
+                          f"mean={value.mean():.3f}, std={value.std():.3f}")
         break
 
     logger.info(f"Logging to {trainer.logger.log_dir}")
