@@ -360,12 +360,11 @@ def main(config, log_dir):
         num_sanity_val_steps=2,
         callbacks=callbacks,
         default_root_dir=log_dir,
-        gradient_clip_val=0.1,  # Reduced from 0.5 for better stability
+        gradient_clip_val=0.1,  # Reduced for better stability
         gradient_clip_algorithm="norm",
         accumulate_grad_batches=config.get("accumulate_grad_batches", 2),  # Increased for stability
         detect_anomaly=True,
         precision=32,  # Use full precision for now
-        max_grad_norm=0.5,
         track_grad_norm=2,
     )
     logger.info(f"Logging to {trainer.logger.log_dir}")
