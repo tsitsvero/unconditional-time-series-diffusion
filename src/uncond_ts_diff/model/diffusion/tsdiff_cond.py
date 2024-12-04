@@ -200,8 +200,16 @@ class TSDiffCond(TSDiffBase):
         ).long()
         elbo_loss = self.step(x, t, features, loss_mask)
         
-        # Log the loss for the scheduler
-        self.log("train_loss", elbo_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Update: Change how we log the loss
+        self.log(
+            "train_loss_epoch",  # Changed from train_loss to train_loss_epoch
+            elbo_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=x.shape[0]  # Explicitly specify batch size
+        )
         
         return {
             "loss": elbo_loss,
@@ -224,8 +232,16 @@ class TSDiffCond(TSDiffBase):
 
         val_loss /= self.timesteps
         
-        # Log validation loss
-        self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        # Update: Change how we log validation loss
+        self.log(
+            "val_loss_epoch",  # Changed from val_loss to val_loss_epoch
+            val_loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=x.shape[0]  # Explicitly specify batch size
+        )
 
         return {
             "loss": val_loss,
