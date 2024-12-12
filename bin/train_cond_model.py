@@ -8,7 +8,7 @@ import yaml
 import torch
 from tqdm.auto import tqdm
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, RichProgressBar
 
 from gluonts.dataset.loader import TrainDataLoader, ValidationDataLoader
 from gluonts.dataset.split import OffsetSplitter
@@ -28,13 +28,6 @@ from uncond_ts_diff.utils import (
     MaskInput,
     ConcatDataset,
 )
-
-
-def normalize_freq(freq):
-    """Normalize frequency string to handle both 'H' and 'h' formats."""
-    if isinstance(freq, str):
-        return freq.lower()
-    return freq
 
 
 def create_model(config):
@@ -108,7 +101,7 @@ def evaluate_conditional(
 def main(config, log_dir):
     # Load parameters
     dataset_name = config["dataset"]
-    freq = normalize_freq(config["freq"])
+    freq = config["freq"]
     context_length = config["context_length"]
     prediction_length = config["prediction_length"]
     total_length = context_length + prediction_length
@@ -118,8 +111,7 @@ def main(config, log_dir):
 
     # Setup dataset and data loading
     dataset = get_gts_dataset(dataset_name)
-    dataset_freq = normalize_freq(dataset.metadata.freq)
-    assert dataset_freq == freq, f"Dataset frequency '{dataset.metadata.freq}' does not match config frequency '{config['freq']}'"
+    assert dataset.metadata.freq == freq
     assert dataset.metadata.prediction_length == prediction_length
 
     if config["setup"] == "forecasting":
@@ -210,10 +202,11 @@ def main(config, log_dir):
     )
 
     callbacks.append(checkpoint_callback)
+    callbacks.append(RichProgressBar())
 
     trainer = pl.Trainer(
-        accelerator="gpu" if torch.cuda.is_available() else None,
-        devices=[int(config["device"].split(":")[-1])],
+        accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        devices=1,
         max_epochs=config["max_epochs"],
         enable_progress_bar=True,
         num_sanity_val_steps=0,
